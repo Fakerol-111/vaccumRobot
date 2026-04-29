@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from evaluator import MapEvalResult
+from core.evaluator import MapEvalResult
 
 
 # ── Request objects ─────────────────────────────────────

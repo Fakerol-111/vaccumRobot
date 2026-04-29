@@ -10,7 +10,7 @@ from core.paths import get_checkpoints_root, get_run_dir
 from core.types import TrainRequest, TrainResult
 from services.checkpoint_service import resolve_checkpoint
 from services.dashboard_service import create_dashboard
-from trainer import Trainer
+from core.trainer import Trainer
 
 
 def _set_seeds(seed: int) -> None:

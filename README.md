@@ -17,6 +17,8 @@ vaccumRobot/
 │   ├── definition.py         # RolloutBatch 数据类 + GAE 计算函数
 │
 ├── core/                     # 运行框架
+│   ├── trainer.py            # Trainer 类（训练主循环、课程学习、断点续训）
+│   ├── evaluator.py          # 评估函数族（单图 / 多图录制 / 汇总输出 + MapEvalResult）
 │   ├── trainer_runner.py     # 训练启动编排（设种子、建 Dashboard、组装 Trainer）
 │   ├── evaluator_runner.py   # 评估启动编排（定位断点、组装 Agent、汇总结果）
 │   ├── paths.py              # 路径工具（查找 run / checkpoint / eval 目录）
@@ -59,8 +61,6 @@ vaccumRobot/
 │   └── test_simple_map.py
 │
 ├── main.py                   # 快捷入口（等价于 python scripts/train.py）
-├── trainer.py                # Trainer 类（训练主循环、课程学习、断点续训）
-├── evaluator.py              # 评估函数族（单图 / 多图录制 / 汇总输出）
 ├── requirements.txt
 └── pyproject.toml
 ```

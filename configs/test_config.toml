@@ -6,10 +6,10 @@
 maps = [1, 2, 3, 4]
 
 # 每张地图测评的 episode 数量
-episodes = 10
+episodes = 5
 
 # 测评时 NPC 数量（若为空则使用 train_config.toml 中的 default_npc_count）
-npc_count = 1
+npc_count = 3
 
 # 测评时充电桩数量（若为空则使用 train_config.toml 中的 default_station_count）
 station_count = 4
