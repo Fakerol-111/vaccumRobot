@@ -113,6 +113,7 @@ class Trainer:
         self._map_name = ""
         self._current_stage_name = ""
         self._env_config_cache: dict[tuple, dict] = {}
+        self._last_save_time = 0.0
 
     # ---------- public properties ----------
 
@@ -388,7 +389,12 @@ class Trainer:
         return len(self._rewards) == self.config.batch_size
 
     def _should_checkpoint(self, global_step: int) -> bool:
-        return global_step % self.config.save_interval == 0 and global_step > 0
+        if global_step <= 0:
+            return False
+        time_interval = self.config.save_time_interval
+        if time_interval > 0:
+            return time.time() - self._last_save_time >= time_interval
+        return global_step % self.config.save_interval == 0
 
     def _collect_batch(
         self, payload: dict, global_step: int,
@@ -491,6 +497,7 @@ class Trainer:
             current_stage_name=self._current_stage_name,
             config_snapshot=config_snapshot,
         )
+        self._last_save_time = time.time()
 
     def _final_summary(self, start_time: float, global_step: int) -> None:
         total_time = time.time() - start_time

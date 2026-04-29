@@ -10,7 +10,8 @@ ppo_epochs = 4
 batch_size = 256
 mini_batch_size = 64
 total_timesteps = 10_000_000_000
-save_interval = 2_000
+save_interval = 2_000          #若save_time_interval不被禁用，则不会使用这个参数
+save_time_interval = 300       # 按时间保存（秒），0 = 禁用，设 300 = 每 5 分钟保存一次
 log_interval = 500
 max_npcs = 5
 local_view_size = 21

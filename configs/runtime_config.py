@@ -46,6 +46,7 @@ def _parse_ppo(raw: dict[str, Any]) -> SimpleNamespace:
         mini_batch_size=int(ppo.get("mini_batch_size", 128)),
         total_timesteps=int(ppo.get("total_timesteps", 10_000)),
         save_interval=int(ppo.get("save_interval", 5_000)),
+        save_time_interval=float(ppo.get("save_time_interval", 0)),
         log_interval=int(ppo.get("log_interval", 500)),
         max_npcs=int(ppo.get("max_npcs", 5)),
         local_view_size=int(ppo.get("local_view_size", 21)),
