@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import torch
-
 from agent.agent import Agent
 from configs.runtime_config import build_multi_env_configs
+from core import get_device
 from core.paths import find_checkpoint, find_run_dir, get_artifacts_root, get_checkpoints_root, get_eval_dir
 from core.types import EvalContext, EvalRequest, EvalResult
 from core.evaluator import evaluate_multi_map_with_recording
@@ -100,7 +99,7 @@ def run_evaluation(req: EvalRequest) -> EvalResult:
     print(f"GIF FPS:      {req.gif_fps}")
     print(f"Output:       {ctx.eval_dir}")
 
-    device = torch.device("cpu")
+    device = get_device()
     agent = Agent(req.ppo_config, device)
     agent.load(ctx.model_path)
 

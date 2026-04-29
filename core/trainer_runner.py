@@ -6,6 +6,7 @@ from datetime import datetime
 import numpy as np
 import torch
 
+from core import get_device
 from core.paths import get_checkpoints_root, get_run_dir
 from core.types import TrainRequest, TrainResult
 from services.checkpoint_service import resolve_checkpoint
@@ -61,7 +62,7 @@ def run_training(req: TrainRequest) -> TrainResult:
         map_strategy=env["map_strategy"],
         curriculum=req.curriculum,
         artifacts_dir=req.artifacts_root,
-        device=torch.device("cpu"),
+        device=get_device(),
         collector=collector,
         default_map_list=env["default_map_list"],
         seed=req.general_config["seed"],
