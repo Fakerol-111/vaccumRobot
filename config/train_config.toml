@@ -19,9 +19,34 @@ local_view_size = 21
 num_actions = 8
 
 [env]
-map = "simple"
+default_map_list = [1, 2, 3, 4]
+default_npc_count = 1
+default_station_count = 4
+map_strategy = "round_robin"
+
+[curriculum]
+enabled = false
+
+[[curriculum.stage]]
+name = "easy_basic"
+maps = [1]
+npc_count = 0
+station_count = 1
+total_steps = 300_000
+
+[[curriculum.stage]]
+name = "medium_npc_maze"
+maps = [1, 2]
+npc_count = 1
+station_count = 2
+total_steps = 1_000_000
+
+[[curriculum.stage]]
+name = "hard_all_maps"
+maps = [1, 2, 3, 4]
 npc_count = 1
 station_count = 4
+total_steps = 10_000_000_000
 
 [training]
 artifacts_dir = "artifacts"

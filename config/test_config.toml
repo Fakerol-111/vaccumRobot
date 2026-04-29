@@ -1,0 +1,27 @@
+# 测试评估配置文件
+# 所有评估参数在这里统一修改，无需通过命令行传入。
+
+[test]
+# 要测评的地图 ID 列表（对应 config/map_N.py）
+maps = [1, 2, 3, 4]
+
+# 每张地图测评的 episode 数量
+episodes = 10
+
+# 测评时 NPC 数量（若为空则使用 train_config.toml 中的 default_npc_count）
+npc_count = 1
+
+# 测评时充电桩数量（若为空则使用 train_config.toml 中的 default_station_count）
+station_count = 4
+
+# 指定要加载的训练 run_id（空字符串 = 自动选择最新的 run）
+run_id = ""
+
+# 指定 checkpoint 步数（0 = 自动选择最新 checkpoint）
+step = 0
+
+# GIF 导出帧率
+gif_fps = 10
+
+# 自定义输出目录（空字符串 = 自动使用 run_dir/eval_<step>/）
+output_dir = ""

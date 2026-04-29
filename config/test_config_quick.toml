@@ -1,0 +1,10 @@
+# Quick test config for verification
+[test]
+maps = [1, 2, 3, 4]
+episodes = 1
+npc_count = 1
+station_count = 4
+run_id = ""
+step = 0
+gif_fps = 10
+output_dir = ""

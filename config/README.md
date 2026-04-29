@@ -2,126 +2,199 @@
 
 ## 配置文件总览
 
-环境配置由两层组成：
+| 文件 | 用途 |
+| --- | --- |
+| `train_config.toml` | 训练入口：`[ppo]` 超参 + `[env]` 多地图参数 + `[curriculum]` 课程学习 + `[training]` 产物路径 |
+| `test_config.toml` | **测试入口**：多地图测评参数，独立于训练配置 |
+| `map_1.py ~ map_N.py` | 地图定义（每文件一个地图）：网格构建函数 + 完整配置字典 |
+| `map_loader.py` | 通用加载器：按数字 ID 自动导入 `map_N.py` |
+| `map_editor.py` | 图形化地图编辑器，可导出 `map_N.py` 格式 |
 
-| 层级   | 文件                     | 控制内容                                          |
-| ---- | ---------------------- | --------------------------------------------- |
-| 训练入口 | `train_config.toml`    | `[ppo]` 超参 + `[env]` 选择地图 + `[training]` 产物路径 |
-| 地图定义 | `simple_map_config.py` | 地图网格 + Agent/NPC/充电桩位置池                       |
+---
 
-***
+## 内置地图
+
+| ID | 地图名 | 文件 | 特点 |
+| -- | ---- | --- | --- |
+| 1 | simple | `map_1.py` | 128×128 方形，边界障碍，内部全脏 |
+| 2 | maze | `map_2.py` | 128×128 迷宫走廊，狭窄通道 |
+| 3 | rooms | `map_3.py` | 128×128 四房间+门洞连接 |
+| 4 | open_scattered | `map_4.py` | 128×128 无边界墙，散布随机障碍块 |
+
+---
 
 ## 自定义地图
 
-在 `config/` 下新建一个 Python 文件（如 `my_map_config.py`），定义一个字典常量：
+创建 `config/map_N.py`（N 为任意整数 ID），约定格式：
 
 ```python
-MY_MAP_CONFIG = {
-    "size": (128,128),                          # 必填：地图尺寸 (宽, 高)
-    "custom_map": my_map,                      # 可选：numpy int8 数组，0=障碍 1=干净 2=脏
+MAP_ID = 5                          # 必须：地图唯一 ID
 
-    "agent_spawn_pool": [                      # 必填：Agent 出生位置池
-        (32, 1),                               #        坐标格式 (x, z)
+def build_my_map(size: int = 128) -> np.ndarray:
+    """构建网格数组（0=障碍 1=干净 2=脏）。"""
+    grid = np.full((size, size), 2, dtype=np.int8)
+    # ... 地图构建逻辑 ...
+    return grid
+
+MAP_CONFIG = {                      # 必须：完整配置字典
+    "size": (128, 128),
+    "custom_map": build_my_map(128),
+    "agent_spawn_pool": [(2, 64), (125, 64)],   # Agent 出生位置池
+    "npc_spawn_pool": [(64, 32), (32, 96)],     # NPC 出生位置池
+    "station_pool": [                            # 充电桩位置池
+        {"x": 2, "z": 2, "dx": 3, "dz": 3},
     ],
-    "agent_spawn_mode": 0,                     # 可选：-1=每局随机一个位置 / >=0=锁定池索引
-
-    "npc_spawn_pool": [                        # 可选：NPC 出生位置池
-        (32, 32),
-        (48, 48),
-    ],
-    "npc_count": 2,                            # 可选：实际 NPC 数量 (<= pool 长度)
-    "npc_spawn_modes": [-1, -1],              # 可选：每个 NPC 的分配模式，长度==npc_count
-
-    "station_pool": [                          # 可选：充电桩位置池
-        {"x": 1,  "z": 1,  "dx": 3, "dz": 3},
-        {"x": 60, "z": 1,  "dx": 3, "dz": 3},
-    ],
-    "station_count": 2,                        # 可选：实际充电桩数量
-    "station_mode": -1,                        # 可选：-1=随机选 / [0,1]=锁定编号
-
-    "max_battery": 200,                        # Agent 最大电量
-    "max_steps": 500,                          # 单局最大步数
-    "hero_id": 37,                             # Agent 编号
-    "npc_ids": None,                           # 可选：NPC 编号列表 (None 自动分配)
-    "map_id": 2,                               # 地图编号
-    "local_view_size": 21,                     # 局部视野大小
+    "max_battery": 200,
+    "max_steps": 1000,
+    "hero_id": 37,
+    "npc_ids": None,
+    "map_id": MAP_ID,               # 必须引用顶部 MAP_ID
+    "local_view_size": 21,
 }
 ```
+
+然后在 `train_config.toml` 的 `default_map_list` 或课程阶段中加入该 ID 即可生效，**无需修改任何注册代码**。
 
 ### 分配模式说明
 
 `*_mode` 字段控制每局如何从池中选取位置：
 
-| 值                 | 含义                                               |
-| ----------------- | ------------------------------------------------ |
-| `-1`              | 每局随机选（使用 Gymnasium 的确定性 RNG，seed 可复现）            |
-| `0 / 1 / 2 / ...` | 固定选取池中对应索引的位置                                    |
-| `[0, 2]`（列表）      | 仅 `station_mode` / `npc_spawn_modes` 支持，指定多个固定索引 |
+| 值 | 含义 |
+| --- | --- |
+| `-1` | 每局随机选（使用 Gymnasium 的确定性 RNG，seed 可复现） |
+| `0 / 1 / 2 / ...` | 固定选取池中对应索引的位置 |
+| `[0, 2]`（列表） | 仅 `station_mode` / `npc_spawn_modes` 支持，指定多个固定索引 |
 
 ### 地图网格约定
 
-`custom_map` 的每个单元格取值为 `np.int8`：
-
-| 值   | 含义          |
-| --- | ----------- |
-| `0` | 障碍物（不可通行）   |
-| `1` | 干净地面        |
+| 值 | 含义 |
+| --- | --- |
+| `0` | 障碍物（不可通行） |
+| `1` | 干净地面 |
 | `2` | 脏地面（清扫后变 1） |
 
-<br />
+### 出生点安全要求
 
-如果未提供 `custom_map`，将使用缺省值（全是 1 的干净地面）。
+所有 `agent_spawn_pool` 和 `npc_spawn_pool` 中的坐标必须落在地图的可通行格（值 ≠ 0）上，否则环境初始化会报错。
 
-***
+---
 
-## 注册到 train\_config.toml
+## 训练配置 (`train_config.toml`)
 
-在 `train_config.toml` `[env]` section 中指定地图名，并可选覆盖 `npc_count` / `station_count`：
+### `[env]` — 多地图训练参数
 
 ```toml
 [env]
-map = "my_map"           # 对应 my_map_config.py 中的 MY_MAP_CONFIG
-npc_count = 3            # 可覆盖地图配置中的 npc_count
-station_count = 2        # 可覆盖地图配置中的 station_count
+default_map_list = [1, 2, 3, 4]    # 默认地图 ID 列表（课程关闭时使用）
+default_npc_count = 1              # 默认 NPC 数量
+default_station_count = 4          # 默认充电桩数量
+map_strategy = "round_robin"       # map 轮换策略: round_robin | random
 ```
 
-然后在 `train_sync.py` 的 `load_env_config()` 中注册新地图：
+### `[curriculum]` — 课程学习
+
+```toml
+[curriculum]
+enabled = true
+
+[[curriculum.stage]]
+name = "easy_basic"
+maps = [1]
+npc_count = 0
+station_count = 1
+total_steps = 300_000               # 累计步数阈值
+
+[[curriculum.stage]]
+name = "medium"
+maps = [1, 2]
+npc_count = 1
+station_count = 2
+total_steps = 1_000_000
+
+[[curriculum.stage]]
+name = "hard"
+maps = [1, 2, 3, 4]
+npc_count = 1
+station_count = 4
+total_steps = 10_000_000_000
+```
+
+- `total_steps` 为累计值，到达后自动进入下一阶段
+- 每个阶段的 `maps` 列表中按 `map_strategy` 轮换
+- 训练日志中会打印 `[Curriculum] >>> Entering stage: xxx` 标记阶段切换
+- 设为 `enabled = false` 则始终使用 `[env]` 节参数
+
+### `[training]` — 基础路径
+
+```toml
+[training]
+artifacts_dir = "artifacts"
+```
+
+---
+
+## 测试配置 (`test_config.toml`)
+
+独立的测评配置文件，**所有参数通过此文件设置，无需命令行传参**：
+
+```toml
+[test]
+maps = [1, 2, 3, 4]    # 要测评的地图 ID 列表
+episodes = 10           # 每张地图测评的 episode 数
+npc_count = 1           # NPC 数量（空 = 沿用 train_config 默认值）
+station_count = 4       # 充电桩数量
+run_id = ""             # 空 = 自动选最新 run
+step = 0                # 0 = 自动选最新 checkpoint
+gif_fps = 10            # GIF 导出帧率
+output_dir = ""         # 空 = 自动生成到 run_dir/eval_<step>/
+```
+
+启动：
+
+```bash
+python test_model.py                                   # 默认配置
+python test_model.py --config config/my_test.toml      # 自定配置
+```
+
+---
+
+## 地图加载器 (`map_loader.py`)
+
+自动加载模块，通过数字 ID 动态导入对应地图文件：
 
 ```python
-if map_name == "simple":
-    from config.simple_map_config import SIMPLE_MAP_CONFIG
-    kwargs = dict(SIMPLE_MAP_CONFIG)
-elif map_name == "my_map":
-    from config.my_map_config import MY_MAP_CONFIG
-    kwargs = dict(MY_MAP_CONFIG)
+from config.map_loader import load_map_config, load_map_configs
+
+cfg = load_map_config(1)              # 加载 map_1.py
+cfgs = load_map_configs([1, 2, 3])    # 批量加载
 ```
 
-***
+---
 
 ## GridWorldEnv 构造函数参数完整列表
 
 地图配置文件中的所有 key 会被 `**kwargs` 解包传给 `GridWorldEnv()`。各参数的缺省值如下：
 
-| 参数                 | 类型                     | 缺省           |
-| ------------------ | ---------------------- | ------------ |
-| `size`             | `(int, int)`           | `(128, 128)` |
-| `custom_map`       | `np.ndarray`           | `None`       |
-| `agent_spawn_pool` | `list[tuple[int,int]]` | `None`       |
-| `agent_spawn_mode` | `int`                  | `-1`         |
-| `npc_spawn_pool`   | `list[tuple[int,int]]` | `None`       |
-| `npc_count`        | `int`                  | `1`          |
-| `npc_spawn_modes`  | `list[int]`            | `None`       |
-| `station_pool`     | `list[dict]`           | `None`       |
-| `station_count`    | `int`                  | `4`          |
-| `station_mode`     | `int \| list[int]`     | `-1`         |
-| `npc_walk_radius`  | `int`                  | `10`         |
-| `max_battery`      | `int`                  | `100`        |
-| `max_steps`        | `int`                  | `1000`       |
-| `hero_id`          | `int`                  | `37`         |
-| `map_id`           | `int`                  | `0`          |
-| `local_view_size`  | `int`                  | `21`         |
+| 参数 | 类型 | 缺省 |
+| --- | --- | --- |
+| `size` | `(int, int)` | `(128, 128)` |
+| `custom_map` | `np.ndarray` | `None` |
+| `agent_spawn_pool` | `list[tuple[int,int]]` | `None` |
+| `agent_spawn_mode` | `int` | `-1` |
+| `npc_spawn_pool` | `list[tuple[int,int]]` | `None` |
+| `npc_count` | `int` | `1` |
+| `npc_spawn_modes` | `list[int]` | `None` |
+| `station_pool` | `list[dict]` | `None` |
+| `station_count` | `int` | `4` |
+| `station_mode` | `int \| list[int]` | `-1` |
+| `npc_walk_radius` | `int` | `10` |
+| `max_battery` | `int` | `100` |
+| `max_steps` | `int` | `1000` |
+| `hero_id` | `int` | `37` |
+| `map_id` | `int` | `0` |
+| `local_view_size` | `int` | `21` |
 
-***
+---
 
 ## 地图编辑器 (map_editor.py)
 
@@ -130,7 +203,6 @@ elif map_name == "my_map":
 ### 启动
 
 ```bash
-cd vacumRobot
 python config/map_editor.py            # 默认 128×128
 python config/map_editor.py 64         # 指定尺寸 64×64
 ```
@@ -139,72 +211,43 @@ python config/map_editor.py 64         # 指定尺寸 64×64
 
 ### 鼠标操作
 
-| 操作         | 功能                     |
-| ---------- | ---------------------- |
-| 左键拖拽       | 涂色（当前选中类型）             |
-| 右键点击       | 放置选中实体（Agent / NPC / 充电桩） |
-| 滚轮         | 缩放地图                   |
-| 中键拖拽       | 平移视野                   |
-| 鼠标悬停       | 黄色高亮当前格，标题栏显示坐标及类型    |
+| 操作 | 功能 |
+| --- | --- |
+| 左键拖拽 | 涂色（当前选中类型） |
+| 右键点击 | 放置选中实体（Agent / NPC / 充电桩） |
+| 滚轮 | 缩放地图 |
+| 中键拖拽 | 平移视野 |
+| 鼠标悬停 | 黄色高亮当前格，标题栏显示坐标及类型 |
 
 ### 键盘操作
 
-| 按键         | 功能                                  |
-| ---------- | ----------------------------------- |
-| `0`        | 画笔切换为 **障碍** (黑色)                   |
-| `1`        | 画笔切换为 **干净** (白色)                   |
-| `2`        | 画笔切换为 **脏地面** (金色)                  |
-| `A`        | 放置模式切换为 **Agent 出生点**（右键放置，绿色圆）     |
-| `N`        | 放置模式切换为 **NPC 出生点**（右键放置，红色圆）       |
-| `S`        | 放置模式切换为 **充电桩**（右键放置，蓝色矩形，默认 3×3）  |
-| `D`        | 删除光标最近实体（Agent / NPC / 充电桩）         |
-| `C`        | 清除所有出生点和充电桩                         |
-| `G`        | 切换网格显隐                              |
-| `R`        | 重置视野到全局                             |
-| `+` / `-` | 放大 / 缩小                             |
-| `L`        | **坐标线染色**：输入起止坐标，同行或同列批量填充         |
-| `Ctrl+Z`   | **撤销**上一次染色操作（最多 50 步）              |
-| `O`        | **载入已有地图**，继续编辑                     |
-| `E`        | **导出**为 `config/<name>_map_config.py` |
-| `Q` / Esc | 退出                                  |
-
-### 坐标线染色 (L 键)
-
-按 `L` 弹出对话框，输入起止坐标，格式非常灵活（仅需包含 4 个数字）：
-
-```
-10,5 30,5      # 第5行，第10~30列
-50,10 50,60    # 第50列，第10~60行
-4,1,1,1        # 同样合法
-(4,1)-(1,1)    # 也合法
-```
-
-起止坐标必须**同行或同列**（至少共享 x 或 y），否则拒绝染色。输入非 4 个数字时直接拒绝，不会污染已有地图。
-
-### 载入已有地图 (O 键)
-
-按 `O` 弹出文件选择对话框，选一个 `*_map_config.py` 文件即可恢复：
-- 自动解析 `build_*_map()` 恢复网格
-- 自动解析 `*_MAP_CONFIG` 恢复所有出生点和充电桩
-- 尺寸必须匹配（如用 128 编辑器只能载入 128 的地图）
-- 载入后撤销栈清空、操作计数重置
-
-### 自动存档与恢复
-
-- 每完成 **10 步**染色操作（左键拖拽或 L 线染色），自动保存一份副本到 `config/.editor_autosave.npy`
-- 编辑器**重新启动**时，若检测到自动存档，弹出对话框询问是否恢复，输入 `y` 即可恢复
+| 按键 | 功能 |
+| --- | --- |
+| `0` | 画笔切换为 **障碍** (黑色) |
+| `1` | 画笔切换为 **干净** (白色) |
+| `2` | 画笔切换为 **脏地面** (金色) |
+| `A` | 放置模式切换为 **Agent 出生点**（右键放置，绿色圆） |
+| `N` | 放置模式切换为 **NPC 出生点**（右键放置，红色圆） |
+| `S` | 放置模式切换为 **充电桩**（右键放置，蓝色矩形，默认 3×3） |
+| `D` | 删除光标最近实体（Agent / NPC / 充电桩） |
+| `C` | 清除所有出生点和充电桩 |
+| `G` | 切换网格显隐 |
+| `R` | 重置视野到全局 |
+| `+` / `-` | 放大 / 缩小 |
+| `L` | **坐标线染色**：输入起止坐标，同行或同列批量填充 |
+| `Ctrl+Z` | **撤销**上一次染色操作（最多 50 步） |
+| `O` | **载入已有地图**，继续编辑 |
+| `E` | **导出**为 `config/<name>_map_config.py` |
+| `Q` / Esc | 退出 |
 
 ### 导出格式
 
-按 `E` 输入地图名后，生成 `config/<name>_map_config.py`，包含：
-- `build_<name>_map()` — 网格构建函数
-- `<NAME>_MAP_CONFIG` — 可直接被 `train_config.toml` 引用的完整配置字典
+按 `E` 输入地图名后，生成 `<name>_map_config.py`。导出后建议重命名为 `map_N.py` 并添加 `MAP_ID = N` 头，以适配自动加载器。
 
 ### 网格颜色对照
 
-| 颜色   | 值   | 含义          |
-| ---- | --- | ----------- |
-| 🖤 黑 | `0` | 障碍物（不可通行）   |
-| 🤍 白 | `1` | 干净地面        |
+| 颜色 | 值 | 含义 |
+| --- | --- | --- |
+| 🖤 黑 | `0` | 障碍物（不可通行） |
+| 🤍 白 | `1` | 干净地面 |
 | 💛 金 | `2` | 脏地面（清扫后变 1） |
-

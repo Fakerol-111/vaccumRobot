@@ -3,12 +3,14 @@ from __future__ import annotations
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
 
 from agent.agent import Agent
 from agent.definition import RolloutBatch
+from config.map_loader import load_map_config
 from metrics import MetricsLogger
 
 
@@ -27,19 +29,32 @@ class Trainer:
     def __init__(
         self,
         ppo_config,
-        env_kwargs: dict,
+        default_npc_count: int,
+        default_station_count: int,
+        map_strategy: str,
+        curriculum: dict[str, Any],
         artifacts_dir: Path,
-        map_name: str,
         device: torch.device | None = None,
     ):
         self.config = ppo_config
-        self.env_kwargs = env_kwargs
+        self.default_npc_count = default_npc_count
+        self.default_station_count = default_station_count
+        self.map_strategy = map_strategy
+        self.curriculum_enabled = curriculum["enabled"]
+        self.curriculum_stages: list[dict[str, Any]] = curriculum.get("stages") or []
         self.artifacts_dir = artifacts_dir
-        self.map_name = map_name
         self.device = device or torch.device("cpu")
-        self.map_dir = self.artifacts_dir / map_name
+
+        self.map_dir = self.artifacts_dir / "multi_map"
         self.map_dir.mkdir(parents=True, exist_ok=True)
         self.agent = Agent(ppo_config, self.device)
+
+        self._env: Any = None
+        self._current_map_idx = 0
+        self._current_map_id = 0
+        self._map_name = ""
+        self._current_stage_name = ""
+        self._env_config_cache: dict[tuple, dict] = {}
 
     # ---------- main entry ----------
 
@@ -50,20 +65,33 @@ class Trainer:
         self.logger = MetricsLogger(log_file=self.checkpoint_dir / "train.log")
 
         self.logger._emit(f"Run: {run_id}")
-        self.logger._emit(f"Map: {self.map_name}  timesteps={self.config.total_timesteps}")
+        self.logger._emit(f"Multi-map training  timesteps={self.config.total_timesteps}")
+        self.logger._emit(f"Map strategy: {self.map_strategy}")
+        self.logger._emit(f"Curriculum: {'enabled' if self.curriculum_enabled else 'disabled'}")
+
+        if self.curriculum_stages:
+            self.logger._emit("Curriculum stages:")
+            for s in self.curriculum_stages:
+                self.logger._emit(
+                    f"  [{s['name']}] maps={s['maps']} "
+                    f"npc={s['npc_count']} stations={s['station_count']} "
+                    f"until_step={s['total_steps']}"
+                )
+
         self.logger._emit(f"batch_size={self.config.batch_size}  lr={self.config.learning_rate}")
         self.logger._emit("")
 
-        env = self._create_env()
+        self._env = self._create_initial_env()
         self._reset_collectors()
         self._episode_steps = 0
         self._episode_reward = 0.0
         global_step, start_time = 0, time.time()
-        payload = env.reset(options={"mode": "train"})
+        payload = self._env.reset(options={"mode": "train"})
         self.agent.preprocessor.reset()
 
         while global_step < self.config.total_timesteps:
-            payload, global_step = self._collect_batch(env, payload, global_step)
+            self._log_stage_transition(global_step)
+            payload, global_step = self._collect_batch(payload, global_step)
 
             if self._buffer_is_full():
                 rollout = self._build_rollout_batch(payload)
@@ -75,17 +103,73 @@ class Trainer:
             if self._should_checkpoint(global_step):
                 self._save_checkpoint(global_step)
 
-        env.close()
+        self._env.close()
         self._save_checkpoint(global_step)
         self.logger._emit(f"Model saved to {self.checkpoint_dir}")
         self._final_summary(start_time, global_step)
         self.logger.close()
 
-    # ---------- private helpers ----------
+    # ---------- curriculum / map helpers ----------
 
-    def _create_env(self):
-        from env import GridWorldEnv
-        return GridWorldEnv(**self.env_kwargs, enable_recording=False, render_mode=None)
+    def _resolve_curriculum_stage(self, global_step: int) -> dict[str, Any] | None:
+        if not self.curriculum_enabled or not self.curriculum_stages:
+            return None
+        for stage in self.curriculum_stages:
+            if global_step < stage["total_steps"]:
+                return stage
+        return self.curriculum_stages[-1]
+
+    def _get_env_config(self, map_id: int, npc_count: int, station_count: int) -> dict[str, Any]:
+        cache_key = (map_id, npc_count, station_count)
+        if cache_key not in self._env_config_cache:
+            cfg = load_map_config(map_id)
+            cfg["npc_count"] = npc_count
+            cfg["station_count"] = station_count
+            self._env_config_cache[cache_key] = cfg
+        return self._env_config_cache[cache_key]
+
+    def _pick_next_map(self, global_step: int) -> tuple[dict[str, Any], int]:
+        stage = self._resolve_curriculum_stage(global_step)
+        if stage:
+            map_ids = stage["maps"]
+            npc_count = stage["npc_count"]
+            station_count = stage["station_count"]
+        else:
+            map_ids = [1, 2, 3, 4]
+            npc_count = self.default_npc_count
+            station_count = self.default_station_count
+
+        if self.map_strategy == "random":
+            map_id = int(np.random.choice(map_ids))
+        else:
+            n = len(map_ids)
+            map_id = map_ids[self._current_map_idx % n]
+            self._current_map_idx = (self._current_map_idx + 1) % n
+
+        env_config = self._get_env_config(map_id, npc_count, station_count)
+        return env_config, map_id
+
+    def _create_initial_env(self):
+        config, map_id = self._pick_next_map(0)
+        self._current_map_id = map_id
+        self._map_name = f"map_{map_id}"
+        return GridWorldEnv(**config, enable_recording=False, render_mode=None)
+
+    def _create_next_env(self, global_step: int):
+        config, map_id = self._pick_next_map(global_step)
+        self._current_map_id = map_id
+        self._map_name = f"map_{map_id}"
+        return GridWorldEnv(**config, enable_recording=False, render_mode=None)
+
+    def _log_stage_transition(self, global_step: int) -> None:
+        stage = self._resolve_curriculum_stage(global_step)
+        stage_name = stage["name"] if stage else "default"
+        if stage_name != self._current_stage_name:
+            self._current_stage_name = stage_name
+            self._current_map_idx = 0
+            self.logger._emit(f"[Curriculum] >>> Entering stage: {stage_name} at step {global_step}")
+
+    # ---------- private helpers ----------
 
     def _reset_collectors(self) -> None:
         self._map_imgs: list[np.ndarray] = []
@@ -114,7 +198,7 @@ class Trainer:
         return global_step % self.config.save_interval == 0 and global_step > 0
 
     def _collect_batch(
-        self, env, payload: dict, global_step: int,
+        self, payload: dict, global_step: int,
     ) -> tuple[dict, int]:
         remaining = self.config.batch_size
 
@@ -123,7 +207,7 @@ class Trainer:
                 payload, self.agent.preprocessor.curr_action
             )
             action, log_prob, value = self.agent.forward_features(map_img, vector, legal_mask)
-            payload = env.step(action)
+            payload = self._env.step(action)
             done = int(payload["terminated"] or payload["truncated"])
 
             self._map_imgs.append(map_img)
@@ -144,10 +228,13 @@ class Trainer:
                 env_info = payload["observation"]["env_info"]
                 cleaned = int(env_info["clean_score"])
                 charges = int(env_info["charge_count"])
-                self.logger.log_episode(cleaned, self._episode_steps, charges, self._episode_reward)
+                self.logger.log_episode(cleaned, self._episode_steps, charges, self._episode_reward, self._map_name)
                 self._episode_steps = 0
                 self._episode_reward = 0.0
-                payload = env.reset(options={"mode": "train"})
+
+                self._env.close()
+                self._env = self._create_next_env(global_step)
+                payload = self._env.reset(options={"mode": "train"})
                 self.agent.preprocessor.reset()
 
         return payload, global_step
@@ -206,3 +293,6 @@ class Trainer:
         total_time = time.time() - start_time
         self.logger._emit(f"Total time: {total_time:.1f}s  Total steps: {global_step}")
         self.logger.print_training_summary()
+
+
+from env import GridWorldEnv

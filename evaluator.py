@@ -1,11 +1,41 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from agent.agent import Agent
+
+
+@dataclass
+class MapEvalResult:
+    map_name: str
+    rewards: list[float] = field(default_factory=list)
+    steps: list[int] = field(default_factory=list)
+    scores: list[int] = field(default_factory=list)
+    charges: list[int] = field(default_factory=list)
+
+    @property
+    def avg_reward(self) -> float:
+        return float(np.mean(self.rewards)) if self.rewards else 0.0
+
+    @property
+    def avg_steps(self) -> float:
+        return float(np.mean(self.steps)) if self.steps else 0.0
+
+    @property
+    def avg_score(self) -> float:
+        return float(np.mean(self.scores)) if self.scores else 0.0
+
+    @property
+    def avg_charges(self) -> float:
+        return float(np.mean(self.charges)) if self.charges else 0.0
+
+    @property
+    def num_episodes(self) -> int:
+        return len(self.rewards)
 
 
 def evaluate(
@@ -103,6 +133,102 @@ def evaluate_with_recording(
     return _build_result(episode_rewards, episode_steps)
 
 
+def evaluate_multi_map_with_recording(
+    agent: Agent,
+    map_configs: list[dict[str, Any]],
+    map_names: list[str],
+    eval_dir: Path,
+    num_episodes: int = 10,
+    gif_fps: int = 10,
+) -> dict:
+    """Run evaluation on multiple maps, store GIFs per-map, and compute per-map + overall stats.
+
+    Parameters
+    ----------
+    agent : Agent
+    map_configs : list of env_kwargs dicts (one per map)
+    map_names : list of map name strings, e.g. ["map_1", "map_2"]
+    eval_dir : root output directory (subdirs created per map)
+    num_episodes : episodes per map
+    gif_fps : FPS for exported GIF files
+
+    Returns
+    -------
+    dict with keys:
+        results: list[MapEvalResult]
+        overall_avg_reward, overall_avg_score, overall_avg_steps, overall_avg_charges
+    """
+    from env import GridWorldEnv, TrajectoryRecorder
+
+    eval_dir.mkdir(parents=True, exist_ok=True)
+
+    all_results: list[MapEvalResult] = []
+
+    for map_config, map_name in zip(map_configs, map_names):
+        map_dir = eval_dir / map_name
+        map_dir.mkdir(parents=True, exist_ok=True)
+
+        result = MapEvalResult(map_name=map_name)
+
+        for ep in range(num_episodes):
+            agent.preprocessor.reset()
+            recorder = TrajectoryRecorder()
+            eval_env = GridWorldEnv(
+                **map_config,
+                enable_recording=True,
+                trajectory_recorder=recorder,
+                render_mode=None,
+            )
+            payload = eval_env.reset(options={"mode": "eval"})
+            total_reward = 0.0
+            steps = 0
+            done = False
+            while not done:
+                map_img, vector, legal_action, reward = agent.preprocessor.feature_process(
+                    payload, agent.preprocessor.curr_action
+                )
+                action, _, _ = agent.forward_features(map_img, vector, legal_action, deterministic=True)
+                payload = eval_env.step(action)
+                total_reward += reward
+                steps += 1
+                done = payload["terminated"] or payload["truncated"]
+
+            eval_env.close()
+
+            env_info = payload["observation"]["env_info"]
+            score = int(env_info["clean_score"])
+            charges = int(env_info["charge_count"])
+
+            result.rewards.append(total_reward)
+            result.steps.append(steps)
+            result.scores.append(score)
+            result.charges.append(charges)
+
+            if recorder.frames:
+                base = f"ep{ep + 1:02d}_score_{score}_step_{steps}"
+                recorder.export_gif(map_dir / f"{base}.gif", fps=gif_fps)
+                recorder.export_log(map_dir / f"{base}.log")
+
+        _write_map_summary(map_dir, map_name, result)
+        all_results.append(result)
+
+    _write_overall_summary(eval_dir, all_results)
+
+    all_rewards = [r for res in all_results for r in res.rewards]
+    all_scores = [s for res in all_results for s in res.scores]
+    all_steps = [s for res in all_results for s in res.steps]
+    all_charges = [c for res in all_results for c in res.charges]
+
+    return {
+        "results": all_results,
+        "overall_avg_reward": float(np.mean(all_rewards)) if all_rewards else 0.0,
+        "overall_avg_score": float(np.mean(all_scores)) if all_scores else 0.0,
+        "overall_avg_steps": float(np.mean(all_steps)) if all_steps else 0.0,
+        "overall_avg_charges": float(np.mean(all_charges)) if all_charges else 0.0,
+        "total_episodes": len(all_rewards),
+    }
+
+
 def _build_result(
     episode_rewards: list[float],
     episode_steps: list[int],
@@ -129,18 +255,85 @@ def _write_eval_summary(
     ch = np.array(charges, dtype=np.float32)
 
     lines = [
-        f"=== Evaluation Summary ===",
+        "=== Evaluation Summary ===",
         f"episodes={len(rewards)}",
-        f"",
+        "",
         f"Reward:  avg={r.mean():.2f} std={r.std():.2f} min={r.min():.2f} max={r.max():.2f}",
         f"Steps:   avg={s.mean():.1f} std={s.std():.1f} min={s.min():.0f} max={s.max():.0f}",
         f"Score:   avg={sc.mean():.1f} std={sc.std():.1f} min={sc.min():.0f} max={sc.max():.0f}",
         f"Charges: avg={ch.mean():.2f} std={ch.std():.2f} min={ch.min():.0f} max={ch.max():.0f}",
-        f"",
-        f"Per-episode:",
-        f"ep\treward\tsteps\tscore\tcharges",
+        "",
+        "Per-episode:",
+        "ep\treward\tsteps\tscore\tcharges",
     ]
     for i, (rw, st, sc_val, ch_val) in enumerate(zip(rewards, steps, scores, charges)):
         lines.append(f"{i + 1}\t{rw:.2f}\t{st:.0f}\t{sc_val:.0f}\t{ch_val:.0f}")
 
     (eval_dir / "summary.txt").write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_map_summary(
+    map_dir: Path,
+    map_name: str,
+    result: MapEvalResult,
+) -> None:
+    r = np.array(result.rewards, dtype=np.float32)
+    s = np.array(result.steps, dtype=np.float32)
+    sc = np.array(result.scores, dtype=np.float32)
+    ch = np.array(result.charges, dtype=np.float32)
+
+    lines = [
+        f"=== {map_name} Evaluation Summary ===",
+        f"episodes={result.num_episodes}",
+        "",
+        f"Reward:  avg={r.mean():.2f} std={r.std():.2f} min={r.min():.2f} max={r.max():.2f}",
+        f"Steps:   avg={s.mean():.1f} std={s.std():.1f} min={s.min():.0f} max={s.max():.0f}",
+        f"Score:   avg={sc.mean():.1f} std={sc.std():.1f} min={sc.min():.0f} max={sc.max():.0f}",
+        f"Charges: avg={ch.mean():.2f} std={ch.std():.2f} min={ch.min():.0f} max={ch.max():.0f}",
+        "",
+        "Per-episode:",
+        "ep\treward\tsteps\tscore\tcharges",
+    ]
+    for i, (rw, st, sc_val, ch_val) in enumerate(zip(result.rewards, result.steps, result.scores, result.charges)):
+        lines.append(f"{i + 1}\t{rw:.2f}\t{st:.0f}\t{sc_val:.0f}\t{ch_val:.0f}")
+
+    (map_dir / "summary.txt").write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_overall_summary(
+    eval_dir: Path,
+    results: list[MapEvalResult],
+) -> None:
+    all_rewards = [r for res in results for r in res.rewards]
+    all_scores = [s for res in results for s in res.scores]
+    all_steps = [s for res in results for s in res.steps]
+    all_charges = [c for res in results for c in res.charges]
+
+    r = np.array(all_rewards, dtype=np.float32) if all_rewards else np.array([], dtype=np.float32)
+    sc = np.array(all_scores, dtype=np.float32) if all_scores else np.array([], dtype=np.float32)
+    s = np.array(all_steps, dtype=np.float32) if all_steps else np.array([], dtype=np.float32)
+    ch = np.array(all_charges, dtype=np.float32) if all_charges else np.array([], dtype=np.float32)
+
+    lines = [
+        "=== Overall Multi-Map Evaluation Summary ===",
+        f"maps={len(results)}  total_episodes={len(all_rewards)}",
+        "",
+        "--- Per-Map Averages ---",
+        f"{'map':<12} {'episodes':>8} {'avg_reward':>11} {'avg_score':>10} {'avg_steps':>10} {'avg_charges':>12}",
+    ]
+    for res in results:
+        lines.append(
+            f"{res.map_name:<12} {res.num_episodes:>8} "
+            f"{res.avg_reward:>11.2f} {res.avg_score:>10.1f} "
+            f"{res.avg_steps:>10.1f} {res.avg_charges:>12.2f}"
+        )
+
+    lines.append("")
+    lines.append("--- Overall Averages ---")
+    if len(r) > 0:
+        lines.append(f"Reward:  avg={r.mean():.2f} std={r.std():.2f} min={r.min():.2f} max={r.max():.2f}")
+        lines.append(f"Score:   avg={sc.mean():.1f} std={sc.std():.1f} min={sc.min():.0f} max={sc.max():.0f}")
+        lines.append(f"Steps:   avg={s.mean():.1f} std={s.std():.1f} min={s.min():.0f} max={s.max():.0f}")
+        lines.append(f"Charges: avg={ch.mean():.2f} std={ch.std():.2f} min={ch.min():.0f} max={ch.max():.0f}")
+
+    (eval_dir / "summary_all.txt").write_text("\n".join(lines), encoding="utf-8")

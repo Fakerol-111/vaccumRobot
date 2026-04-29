@@ -35,6 +35,7 @@ class MetricsLogger:
         steps: int,
         charge_count: int,
         reward_sum: float,
+        map_name: str = "",
     ) -> None:
         self.cleaned_list.append(cleaned)
         self.steps_list.append(steps)
@@ -48,8 +49,10 @@ class MetricsLogger:
 
         efficiency = cleaned / max(steps, 1)
 
+        map_tag = f"[{map_name}] " if map_name else ""
         msg = (
             f"[Episode {self.episode_count:>4d}] "
+            f"{map_tag}"
             f"cleaned={cleaned:>5d}  steps={steps:>4d}  "
             f"charges={charge_count:>2d}  "
             f"reward={reward_sum:>7.2f}  "
