@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from env.grid_world import GridWorldEnv
+
+if TYPE_CHECKING:
+    from env.trajectory_recorder import TrajectoryRecorder
 
 _KNOWN_ENV_KEYS = {
     "size", "custom_map", "npcs", "charging_stations",
@@ -18,11 +21,13 @@ def create_env(
     map_config: dict[str, Any],
     *,
     enable_recording: bool = False,
+    trajectory_recorder: TrajectoryRecorder | None = None,
     render_mode: str | None = None,
 ) -> GridWorldEnv:
     kwargs = {k: v for k, v in map_config.items() if k in _KNOWN_ENV_KEYS}
     return GridWorldEnv(
         **kwargs,
         enable_recording=enable_recording,
+        trajectory_recorder=trajectory_recorder,
         render_mode=render_mode,
     )

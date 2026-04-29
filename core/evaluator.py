@@ -43,9 +43,9 @@ def evaluate(
     env_kwargs: dict[str, Any],
     num_episodes: int = 3,
 ) -> dict:
-    from env import GridWorldEnv
+    from env.factory import create_env
 
-    eval_env = GridWorldEnv(**env_kwargs, enable_recording=False, render_mode=None)
+    eval_env = create_env(env_kwargs, enable_recording=False, render_mode=None)
 
     episode_rewards: list[float] = []
     episode_steps: list[int] = []
@@ -80,7 +80,8 @@ def evaluate_with_recording(
     eval_dir: Path,
     num_episodes: int = 10,
 ) -> dict:
-    from env import GridWorldEnv, TrajectoryRecorder
+    from env import TrajectoryRecorder
+    from env.factory import create_env
 
     eval_dir.mkdir(parents=True, exist_ok=True)
 
@@ -92,11 +93,11 @@ def evaluate_with_recording(
     for ep in range(num_episodes):
         agent.preprocessor.reset()
         recorder = TrajectoryRecorder()
-        eval_env = GridWorldEnv(
-            **env_kwargs,
+        eval_env = create_env(
+            env_kwargs,
             enable_recording=True,
-            trajectory_recorder=recorder,
             render_mode=None,
+            trajectory_recorder=recorder,
         )
         payload = eval_env.reset(options={"mode": "eval"})
         total_reward = 0.0
@@ -141,24 +142,8 @@ def evaluate_multi_map_with_recording(
     num_episodes: int = 10,
     gif_fps: int = 10,
 ) -> dict:
-    """Run evaluation on multiple maps, store GIFs per-map, and compute per-map + overall stats.
-
-    Parameters
-    ----------
-    agent : Agent
-    map_configs : list of env_kwargs dicts (one per map)
-    map_names : list of map name strings, e.g. ["map_1", "map_2"]
-    eval_dir : root output directory (subdirs created per map)
-    num_episodes : episodes per map
-    gif_fps : FPS for exported GIF files
-
-    Returns
-    -------
-    dict with keys:
-        results: list[MapEvalResult]
-        overall_avg_reward, overall_avg_score, overall_avg_steps, overall_avg_charges
-    """
-    from env import GridWorldEnv, TrajectoryRecorder
+    from env import TrajectoryRecorder
+    from env.factory import create_env
 
     eval_dir.mkdir(parents=True, exist_ok=True)
 
@@ -173,8 +158,8 @@ def evaluate_multi_map_with_recording(
         for ep in range(num_episodes):
             agent.preprocessor.reset()
             recorder = TrajectoryRecorder()
-            eval_env = GridWorldEnv(
-                **map_config,
+            eval_env = create_env(
+                map_config,
                 enable_recording=True,
                 trajectory_recorder=recorder,
                 render_mode=None,

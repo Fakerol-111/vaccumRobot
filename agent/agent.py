@@ -108,7 +108,7 @@ class Agent:
         self._save_file(Path(path))
 
     def load(self, path: str | Path) -> None:
-        state = torch.load(str(path), map_location=self.device, weights_only=True)
+        state = torch.load(str(path), map_location=self.device, weights_only=False)
         if "model_state_dict" in state:
             state = state["model_state_dict"]
         self.model.load_state_dict(state)
