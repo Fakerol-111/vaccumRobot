@@ -21,7 +21,7 @@ run_id = ""
 step = 0
 
 # GIF 导出帧率
-gif_fps = 10
+gif_fps = 20
 
 # 自定义输出目录（空字符串 = 自动使用 run_dir/eval_<step>/）
 output_dir = ""
