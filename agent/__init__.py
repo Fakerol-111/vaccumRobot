@@ -6,4 +6,5 @@ Modules:
     definition.py   - data protocol, GAE computation, value bootstrapping
     algorithm.py    - PPO update (takes model + optimizer)
     agent.py        - unified predict / exploit / learn / save / load
+    checkpoint.py   - checkpoint format (model, optimizer, step, config, RNG)
 """

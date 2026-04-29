@@ -9,6 +9,32 @@ pip install -r requirements.txt
 python main.py          # 或 python train_sync.py
 ```
 
+## 实时训练监控 (Dashboard)
+
+训练时自动启动一个 Web 监控面板，可在浏览器中实时查看训练状态。
+
+打开浏览器访问 **`http://localhost:8088`**，页面包含：
+
+- **Loss 曲线**：Policy Loss / Value Loss / Entropy 随 PPO update 次数变化
+- **Episode 指标**：每个 episode 的总 Reward、EMA 清洁分数、Cleaned 数、Steps 数
+- **Update 指标**：每次 PPO update 的平均 Reward
+- **实时日志流**：彩色编码的事件日志（episode / update / 阶段切换）
+
+### 配置
+
+在 `config/train_config.toml` 中：
+
+```toml
+[dashboard]
+enabled = true          # 是否启用
+host = "0.0.0.0"        # 监听地址
+port = 8088             # 监听端口
+```
+
+训练启动后控制台会打印 `[Dashboard] Server started at http://0.0.0.0:8088`，直接在浏览器打开即可。Dashboard 运行在后台线程中，不影响训练速度。
+
+---
+
 ## 多地图训练
 
 训练自动从 `config/train_config.toml` 读取配置，默认使用 4 张不同风格的地图轮换训练。
@@ -21,7 +47,12 @@ default_map_list = [1, 2, 3, 4]    # 默认地图 ID 列表
 default_npc_count = 1              # 默认 NPC 数量
 default_station_count = 4          # 默认充电桩数量
 map_strategy = "round_robin"       # 地图轮换策略：round_robin | random
+
+[general]
+seed = 42                          # 全局随机种子，保证训练可复现
 ```
+
+训练启动时统一设置 `random` / `numpy` / `torch` 种子。每个 episode 通过 `base_seed + episode_index` 规则计算子种子传入环境，确保相同配置重新运行可获得一致的训练轨迹。种子和完整超参会同时写入 `run_meta.json`。
 
 ### 课程学习
 
@@ -75,6 +106,7 @@ artifacts/
   └─ multi_map/
        └─ checkpoints/
             └─ 20260429_135229/         ← 一次训练 run
+                 ├─ run_meta.json         ← 训练元信息 (seed + 超参)
                  ├─ checkpoint_2000.pt   ← 每 save_interval 步保存
                  ├─ checkpoint_4000.pt
                  ├─ train.log            ← 训练日志

@@ -6,16 +6,19 @@
 
 from __future__ import annotations
 
+import argparse
+import random
 import sys
 import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import torch
 
 from config.map_loader import load_map_configs
-from trainer import Trainer
+from trainer import Trainer, _find_nearest_checkpoint
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -31,8 +34,6 @@ def load_ppo_config(config_path: Path | None = None) -> SimpleNamespace:
         raw = tomllib.load(f)
     ppo = raw["ppo"]
     return SimpleNamespace(
-        num_actors=int(ppo.get("num_actors", 4)),
-        num_env_steps=int(ppo.get("num_env_steps", 128)),
         learning_rate=float(ppo.get("learning_rate", 3e-4)),
         gamma=float(ppo.get("gamma", 0.99)),
         gae_lambda=float(ppo.get("gae_lambda", 0.95)),
@@ -112,6 +113,30 @@ def load_training_config(config_path: Path | None = None) -> dict[str, Any]:
     return raw["training"]
 
 
+def _load_general_config(config_path: Path | None = None) -> dict[str, Any]:
+    if config_path is None:
+        config_path = _default_config_path()
+    with open(config_path, "rb") as f:
+        raw = tomllib.load(f)
+    general = raw.get("general", {})
+    return {
+        "seed": int(general.get("seed", 42)),
+    }
+
+
+def _load_dashboard_config(config_path: Path | None = None) -> dict[str, Any]:
+    if config_path is None:
+        config_path = _default_config_path()
+    with open(config_path, "rb") as f:
+        raw = tomllib.load(f)
+    dashboard = raw.get("dashboard", {})
+    return {
+        "enabled": bool(dashboard.get("enabled", False)),
+        "host": dashboard.get("host", "0.0.0.0"),
+        "port": int(dashboard.get("port", 8088)),
+    }
+
+
 def build_multi_env_configs(
     map_ids: list[int],
     npc_count: int,
@@ -130,7 +155,29 @@ def build_multi_env_configs(
     return env_configs
 
 
-def main(config_path: Path | None = None):
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Train PPO agent for Robot Vacuum")
+    parser.add_argument("config", nargs="?", type=str, default=None,
+                        help="Path to config TOML file")
+    parser.add_argument("--resume", nargs="?", const="auto", type=str, default=None,
+                        help="Resume from latest checkpoint in the run directory. "
+                             "Use --resume <checkpoint_path> for a specific checkpoint, "
+                             "or --resume (without value) to auto-detect.")
+    parser.add_argument("--checkpoint", type=str, default=None,
+                        help="Alias for --resume <path>")
+    return parser.parse_args(argv)
+
+
+def main(config_path: Path | None = None, resume_from: Path | str | None = None):
+    general = _load_general_config(config_path)
+    seed = general["seed"]
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
     torch.set_num_threads(2)
     torch.set_num_interop_threads(2)
 
@@ -139,12 +186,46 @@ def main(config_path: Path | None = None):
     curriculum = load_curriculum(config_path)
     training = load_training_config(config_path)
 
+    if resume_from is None:
+        cfg_resume = training.get("resume_from", "")
+        if cfg_resume:
+            resume_from = cfg_resume
+
     artifacts_dir = PROJECT_ROOT / training["artifacts_dir"]
     device = torch.device("cpu")
 
     default_npc = env_settings["default_npc_count"]
     default_station = env_settings["default_station_count"]
     map_strategy = env_settings["map_strategy"]
+    default_map_list = env_settings["default_map_list"]
+
+    collector = None
+    dashboard_server = None
+    dashboard_config = _load_dashboard_config(config_path)
+    if dashboard_config["enabled"]:
+        from training_dashboard import MetricsCollector, DashboardServer
+        collector = MetricsCollector()
+        dashboard_server = DashboardServer(
+            collector,
+            host=dashboard_config["host"],
+            port=dashboard_config["port"],
+        )
+        dashboard_server.start()
+
+    resolved_resume: Path | None = None
+    if resume_from is not None:
+        resume_path = Path(resume_from)
+        if resume_path.is_dir():
+            found = _find_nearest_checkpoint(resume_path)
+            if found is None:
+                print(f"[train_sync] No checkpoint found in {resume_path}")
+                resume_path = None
+            else:
+                resume_path = found
+        if resume_path is not None and not resume_path.exists():
+            print(f"[train_sync] Checkpoint not found: {resume_path}")
+            resume_path = None
+        resolved_resume = resume_path
 
     trainer = Trainer(
         ppo_config=ppo_config,
@@ -154,10 +235,44 @@ def main(config_path: Path | None = None):
         curriculum=curriculum,
         artifacts_dir=artifacts_dir,
         device=device,
+        collector=collector,
+        default_map_list=default_map_list,
+        seed=seed,
+        resume_from=resolved_resume,
+        config_path=config_path,
     )
     trainer.train()
 
+    if dashboard_server is not None:
+        dashboard_server.stop()
+
 
 if __name__ == "__main__":
-    config_path = Path(sys.argv[1]) if len(sys.argv) > 1 else None
-    main(config_path)
+    args = _parse_args()
+    config_path = Path(args.config) if args.config else None
+
+    resume_path: str | Path | None = None
+    if args.checkpoint:
+        resume_path = args.checkpoint
+    elif args.resume:
+        if args.resume == "auto" and config_path is not None:
+            training = load_training_config(config_path)
+            artifacts_dir = PROJECT_ROOT / training["artifacts_dir"]
+            map_dir = artifacts_dir / "multi_map" / "checkpoints"
+            if map_dir.exists():
+                run_dirs = sorted(map_dir.iterdir(), reverse=True)
+                if run_dirs:
+                    found = _find_nearest_checkpoint(run_dirs[0])
+                    if found:
+                        resume_path = found
+                        print(f"[train_sync] Auto-resume: found {found}")
+                    else:
+                        print(f"[train_sync] Auto-resume: no checkpoint in {run_dirs[0]}")
+                else:
+                    print("[train_sync] Auto-resume: no run directories found")
+            else:
+                print(f"[train_sync] Auto-resume: {map_dir} does not exist")
+        else:
+            resume_path = args.resume
+
+    main(config_path, resume_from=resume_path)

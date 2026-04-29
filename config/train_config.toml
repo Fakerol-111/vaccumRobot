@@ -1,6 +1,4 @@
 [ppo]
-num_actors = 1
-num_env_steps = 64
 learning_rate = 0.001
 gamma = 0.99
 gae_lambda = 0.95
@@ -17,6 +15,9 @@ log_interval = 500
 max_npcs = 5
 local_view_size = 21
 num_actions = 8
+
+[general]
+seed = 42
 
 [env]
 default_map_list = [1, 2, 3, 4]
@@ -52,3 +53,14 @@ total_steps = 10_000_000_000
 artifacts_dir = "artifacts"
 model_name = "ppo_model.pt"
 eval_episodes = 10
+
+# 断点续训：设置为 checkpoint 文件路径或包含 checkpoints 的 run 目录路径
+# 例如: resume_from = "artifacts/multi_map/checkpoints/20260429_120000/checkpoint_5000.pt"
+# 或者: resume_from = "artifacts/multi_map/checkpoints/20260429_120000"  (自动选择最新的)
+# 留空 / 注释掉 = 从头开始训练
+# resume_from = ""
+
+[dashboard]
+enabled = true
+host = "0.0.0.0"
+port = 8088

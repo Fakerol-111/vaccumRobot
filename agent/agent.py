@@ -9,6 +9,7 @@ import torch.optim as optim
 from torch.distributions import Categorical
 
 from agent.algorithm import PPO
+from agent.checkpoint import Checkpoint, capture_rng_state
 from agent.definition import RolloutBatch, compute_gae
 from agent.model import ActorCritic
 from agent.preprocessor import Preprocessor
@@ -108,8 +109,43 @@ class Agent:
 
     def load(self, path: str | Path) -> None:
         state = torch.load(str(path), map_location=self.device, weights_only=True)
+        if "model_state_dict" in state:
+            state = state["model_state_dict"]
         self.model.load_state_dict(state)
         self.model.to(self.device)
 
     def _save_file(self, path: Path) -> None:
         torch.save(self.model.state_dict(), str(path))
+
+    def save_checkpoint(
+        self,
+        path: str | Path,
+        global_step: int,
+        episode_counter: int = 0,
+        current_map_idx: int = 0,
+        current_map_id: int = 0,
+        current_stage_name: str = "",
+        config_snapshot: dict[str, Any] | None = None,
+    ) -> None:
+        ckpt = Checkpoint(
+            model_state_dict=self.model.state_dict(),
+            optimizer_state_dict=self.optimizer.state_dict(),
+            global_step=global_step,
+            episode_counter=episode_counter,
+            current_map_idx=current_map_idx,
+            current_map_id=current_map_id,
+            current_stage_name=current_stage_name,
+            config_snapshot=config_snapshot or {},
+            rng_state=capture_rng_state(),
+        )
+        torch.save(ckpt.to_dict(), str(path))
+
+    def load_checkpoint(self, path: str | Path) -> Checkpoint:
+        data = torch.load(str(path), map_location=self.device, weights_only=True)
+        ckpt = Checkpoint.from_dict(data)
+
+        self.model.load_state_dict(ckpt.model_state_dict)
+        self.model.to(self.device)
+        self.optimizer.load_state_dict(ckpt.optimizer_state_dict)
+
+        return ckpt

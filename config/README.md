@@ -4,7 +4,7 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `train_config.toml` | 训练入口：`[ppo]` 超参 + `[env]` 多地图参数 + `[curriculum]` 课程学习 + `[training]` 产物路径 |
+| `train_config.toml` | 训练入口：`[ppo]` 超参 + `[env]` 多地图参数 + `[curriculum]` 课程学习 + `[training]` 产物路径 + `[dashboard]` 监控面板 |
 | `test_config.toml` | **测试入口**：多地图测评参数，独立于训练配置 |
 | `map_1.py ~ map_N.py` | 地图定义（每文件一个地图）：网格构建函数 + 完整配置字典 |
 | `map_loader.py` | 通用加载器：按数字 ID 自动导入 `map_N.py` |
@@ -81,6 +81,15 @@ MAP_CONFIG = {                      # 必须：完整配置字典
 
 ## 训练配置 (`train_config.toml`)
 
+### `[general]` — 全局参数
+
+```toml
+[general]
+seed = 42               # 全局随机种子，保证训练可复现
+```
+
+训练启动时统一设置 `random` / `numpy` / `torch` 种子。每个 episode 的 `GridWorldEnv.reset(seed=episode_seed)` 使用 `base_seed + episode_index` 规则计算，确保按相同配置重新运行时能获得完全一致的训练轨迹。
+
 ### `[env]` — 多地图训练参数
 
 ```toml
@@ -130,6 +139,17 @@ total_steps = 10_000_000_000
 [training]
 artifacts_dir = "artifacts"
 ```
+
+### `[dashboard]` — 实时训练监控
+
+```toml
+[dashboard]
+enabled = true          # 是否启用 Web 监控面板
+host = "0.0.0.0"        # HTTP 监听地址
+port = 8088             # HTTP 监听端口
+```
+
+训练启动后，在浏览器访问 `http://localhost:8088` 即可实时查看 Loss 曲线、Episode 指标、Update 指标和事件日志流。设为 `enabled = false` 可关闭 Dashboard。
 
 ---
 

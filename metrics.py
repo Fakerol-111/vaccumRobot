@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
+if TYPE_CHECKING:
+    from training_dashboard import MetricsCollector
+
 
 class MetricsLogger:
-    def __init__(self, log_file: Path | None = None):
+    def __init__(self, log_file: Path | None = None, collector: MetricsCollector | None = None):
         self.cleaned_list: list[int] = []
         self.steps_list: list[int] = []
         self.charge_list: list[int] = []
@@ -19,6 +23,8 @@ class MetricsLogger:
 
         self._ema_alpha = 2.0 / 101.0
         self._ema_cleaned = 0.0
+
+        self._collector = collector
 
         self._log_file = log_file
         if self._log_file is not None:
@@ -61,6 +67,18 @@ class MetricsLogger:
         )
         self._emit(msg)
 
+        if self._collector is not None:
+            self._collector.add_event("episode", {
+                "episode": self.episode_count,
+                "map_name": map_name,
+                "cleaned": cleaned,
+                "steps": steps,
+                "charges": charge_count,
+                "reward": reward_sum,
+                "ema_cleaned": self._ema_cleaned,
+                "efficiency": efficiency,
+            })
+
     # ---------- update ----------
 
     def log_update(self, reward: float, policy_loss: float, value_loss: float, entropy: float) -> None:
@@ -68,6 +86,15 @@ class MetricsLogger:
         self.policy_losses.append(policy_loss)
         self.value_losses.append(value_loss)
         self.entropies.append(entropy)
+
+        if self._collector is not None:
+            self._collector.add_event("update", {
+                "update_idx": self.update_count,
+                "reward": reward,
+                "policy_loss": policy_loss,
+                "value_loss": value_loss,
+                "entropy": entropy,
+            })
 
     # ---------- periodic log ----------
 
@@ -87,6 +114,17 @@ class MetricsLogger:
             f"episodes={self.episode_count}"
         )
         self._emit("  ".join(parts))
+
+        if self._collector is not None:
+            self._collector.add_event("summary", {
+                "step": step,
+                "fps": fps,
+                "policy_loss": u["policy_loss"]["mean"],
+                "value_loss": u["value_loss"]["mean"],
+                "entropy": u["entropy"]["mean"],
+                "ema_cleaned": self._ema_cleaned,
+                "episodes": self.episode_count,
+            })
 
     # ---------- end of training ----------
 
