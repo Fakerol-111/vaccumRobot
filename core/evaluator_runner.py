@@ -8,7 +8,7 @@ from agent.agent import Agent
 from configs.runtime_config import build_multi_env_configs
 from core.paths import find_checkpoint, find_run_dir, get_artifacts_root, get_checkpoints_root, get_eval_dir
 from core.types import EvalContext, EvalRequest, EvalResult
-from evaluator import evaluate_multi_map_with_recording
+from core.evaluator import evaluate_multi_map_with_recording
 
 
 def _resolve_eval_context(req: EvalRequest) -> EvalContext:

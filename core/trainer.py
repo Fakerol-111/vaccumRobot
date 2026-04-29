@@ -33,7 +33,7 @@ def prepare_batches(segment: RolloutBatch, mini_batch_size: int) -> list[Rollout
 
 
 def _get_git_info() -> dict[str, Any]:
-    repo_root = Path(__file__).resolve().parent
+    repo_root = Path(__file__).resolve().parent.parent
     git_dir = repo_root / ".git"
     info: dict[str, Any] = {"commit": None, "dirty": None, "source": None}
 
