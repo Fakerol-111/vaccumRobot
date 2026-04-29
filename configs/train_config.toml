@@ -64,3 +64,8 @@ eval_episodes = 10
 enabled = true
 host = "0.0.0.0"
 port = 8088
+
+[metrics]
+# 滚动窗口中保留的最大记录数，训练时间越长节省内存效果越明显
+max_updates = 500
+max_episodes = 500

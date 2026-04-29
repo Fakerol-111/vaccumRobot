@@ -14,7 +14,7 @@
     键盘 G      — 切换网格显隐
     键盘 R      — 重置视野到全局
     键盘 +/-    — 缩放
-    键盘 E      — 导出为 config/<name>_map_config.py
+    键盘 E      — 导出为 configs/<name>_map_config.py
     键盘 L      — 坐标线染色，输入起止坐标批量填充
     键盘 Ctrl+Z — 撤销上一次染色操作
     键盘 O      — 载入已有地图配置继续编辑

@@ -4,7 +4,6 @@ import json
 import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, parse_qs
 
@@ -375,3 +374,20 @@ class DashboardServer:
             self._thread.join(timeout=2)
             self._thread = None
         print("[Dashboard] Server stopped", flush=True)
+
+
+def create_dashboard(dashboard_config: dict) -> tuple[MetricsCollector | None, DashboardServer | None]:
+    collector = None
+    dashboard_server = None
+    if dashboard_config["enabled"]:
+        collector = MetricsCollector()
+        dashboard_server = DashboardServer(
+            collector,
+            host=dashboard_config["host"],
+            port=dashboard_config["port"],
+        )
+        dashboard_server.start()
+    return collector, dashboard_server
+
+
+__all__ = ["MetricsCollector", "DashboardServer", "DashboardHandler", "DASHBOARD_HTML", "create_dashboard"]
