@@ -72,9 +72,9 @@ def _print_results(result: EvalResult) -> None:
     print()
     print(f"Files saved to {result.eval_dir}")
     print(f"  summary_all.txt  - overall summary")
-    for mn in result.map_names:
-        print(f"  {mn}/summary.txt  - per-map summary")
-        print(f"  {mn}/*.gif        - trajectory GIFs")
+    for res in result.results:
+        print(f"  {res.map_name}/summary.txt  - per-map summary")
+        print(f"  {res.map_name}/*.gif        - trajectory GIFs")
 
 
 def run_evaluation(req: EvalRequest) -> EvalResult:
