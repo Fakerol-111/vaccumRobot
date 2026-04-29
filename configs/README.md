@@ -1,31 +1,74 @@
 # 环境配置说明
 
-## 配置文件总览
+## 目录结构
 
-| 文件 | 用途 |
-| --- | --- |
-| `train_config.toml` | 训练入口：`[ppo]` 超参 + `[env]` 多地图参数 + `[curriculum]` 课程学习 + `[training]` 产物路径 + `[dashboard]` 监控面板 |
-| `test_config.toml` | **测试入口**：多地图测评参数，独立于训练配置 |
-| `map_1.py ~ map_N.py` | 地图定义（每文件一个地图）：网格构建函数 + 完整配置字典 |
-| `map_loader.py` | 通用加载器：按数字 ID 自动导入 `map_N.py` |
-| `map_editor.py` | 图形化地图编辑器，可导出 `map_N.py` 格式 |
+```
+configs/
+├── maps/                          # ★ 地图数据（运行时）
+│   ├── schema.json                #   JSON Schema 定义
+│   ├── map_1.json                 #   地图 1 - 纯正方形
+│   ├── map_2.json                 #   地图 2 - 迷宫
+│   ├── map_3.json                 #   地图 3 - 四房间
+│   ├── map_4.json                 #   地图 4 - 开放散落
+│   └── src/                       # ★ 地图生成源码（不参与运行）
+│       ├── map_1.py
+│       ├── map_2.py
+│       ├── map_3.py
+│       └── map_4.py
+├── train_config.toml              # 训练入口配置
+├── test_config.toml               # 测试入口配置
+├── map_loader.py                  # 运行时加载器（只读 JSON）
+├── map_editor.py                  # 图形化地图编辑器
+└── README.md
+```
+
+| 路径 | 角色 | 说明 |
+| --- | --- | --- |
+| `configs/maps/map_N.json` | **运行时数据** | 训练/测试只读此 JSON，不碰 .py |
+| `configs/maps/src/map_N.py` | **生成源码** | 含 build 函数和 MAP_CONFIG，导出后才生效 |
+| `configs/map_loader.py` | **加载器** | `load_map_config(id)` → 读 JSON → 返回 dict |
+
+> **⚠️ 核心规则**：训练只读 JSON，`configs/maps/src/` 中的 `.py` 不参与运行时加载。
+
+---
+
+## 修改地图的工作流
+
+```
+修改 configs/maps/src/map_N.py
+        ↓
+运行 scripts/export_maps_to_json.py    ← 从 .py 导出到 .json
+        ↓
+运行 scripts/validate_maps_json.py    ← 校验 .json 完整性
+        ↓
+开始训练                               ← 通过 map_loader 读 .json
+```
+
+### 添加新地图
+
+1. 新建 `configs/maps/src/map_N.py`，遵循地图约定格式（见下方）
+2. 运行 `python scripts/export_maps_to_json.py`
+3. 运行 `python scripts/validate_maps_json.py`
+4. 在 `train_config.toml` 的 `default_map_list` 或课程阶段中加入新 ID
+
+**无需修改 map_loader.py 或任何注册代码**。
 
 ---
 
 ## 内置地图
 
-| ID | 地图名 | 文件 | 特点 |
+| ID | 地图名 | 源文件 | 特点 |
 | -- | ---- | --- | --- |
-| 1 | simple | `map_1.py` | 128×128 方形，边界障碍，内部全脏 |
-| 2 | maze | `map_2.py` | 128×128 迷宫走廊，狭窄通道 |
-| 3 | rooms | `map_3.py` | 128×128 四房间+门洞连接 |
-| 4 | open_scattered | `map_4.py` | 128×128 无边界墙，散布随机障碍块 |
+| 1 | simple | `maps/src/map_1.py` | 128×128 方形，边界障碍，内部全脏 |
+| 2 | maze | `maps/src/map_2.py` | 128×128 迷宫走廊，狭窄通道 |
+| 3 | rooms | `maps/src/map_3.py` | 128×128 四房间+门洞连接 |
+| 4 | open_scattered | `maps/src/map_4.py` | 128×128 无边界墙，散布随机障碍块 |
 
 ---
 
-## 自定义地图
+## 自定义地图（源文件格式）
 
-创建 `config/map_N.py`（N 为任意整数 ID），约定格式：
+创建 `configs/maps/src/map_N.py`（N 为任意整数 ID），约定格式：
 
 ```python
 MAP_ID = 5                          # 必须：地图唯一 ID
@@ -52,8 +95,6 @@ MAP_CONFIG = {                      # 必须：完整配置字典
     "local_view_size": 21,
 }
 ```
-
-然后在 `train_config.toml` 的 `default_map_list` 或课程阶段中加入该 ID 即可生效，**无需修改任何注册代码**。
 
 ### 分配模式说明
 
@@ -151,6 +192,16 @@ port = 8088             # HTTP 监听端口
 
 训练启动后，在浏览器访问 `http://localhost:8088` 即可实时查看 Loss 曲线、Episode 指标、Update 指标和事件日志流。设为 `enabled = false` 可关闭 Dashboard。
 
+### `[metrics]` — 滚动窗口大小
+
+```toml
+[metrics]
+max_updates = 500       # 参与统计的 PPO update 最大记录数
+max_episodes = 500      # 参与统计的 episode 最大记录数
+```
+
+超出上限后旧数据自动丢弃，仅保留最近条目的统计结果。
+
 ---
 
 ## 测试配置 (`test_config.toml`)
@@ -173,21 +224,27 @@ output_dir = ""         # 空 = 自动生成到 run_dir/eval_<step>/
 
 ```bash
 python test_model.py                                   # 默认配置
-python test_model.py --config config/my_test.toml      # 自定配置
+python test_model.py --config configs/my_test.toml      # 自定配置
 ```
 
 ---
 
 ## 地图加载器 (`map_loader.py`)
 
-自动加载模块，通过数字 ID 动态导入对应地图文件：
+运行时只读 `configs/maps/map_N.json`，不碰 `.py` 源文件：
 
 ```python
-from config.map_loader import load_map_config, load_map_configs
+from configs.map_loader import load_map_config, load_map_configs
 
-cfg = load_map_config(1)              # 加载 map_1.py
-cfgs = load_map_configs([1, 2, 3])    # 批量加载
+cfg = load_map_config(1)              # 读取 configs/maps/map_1.json
+cfgs = load_map_configs([1, 2, 3])    # 批量读取
 ```
+
+加载时自动校验：
+- `schema_version` 是否为 1
+- 文件名中的 map_id 是否与文件内容一致
+- `custom_map` 行列数是否与 `size` 匹配
+- 每个字符是否仅为 `0` / `1` / `2`
 
 ---
 
@@ -223,8 +280,8 @@ cfgs = load_map_configs([1, 2, 3])    # 批量加载
 ### 启动
 
 ```bash
-python config/map_editor.py            # 默认 128×128
-python config/map_editor.py 64         # 指定尺寸 64×64
+python configs/map_editor.py            # 默认 128×128
+python configs/map_editor.py 64         # 指定尺寸 64×64
 ```
 
 首屏上方标题栏会显示当前画笔类型、放置模式、实体数量等信息。
@@ -257,12 +314,18 @@ python config/map_editor.py 64         # 指定尺寸 64×64
 | `L` | **坐标线染色**：输入起止坐标，同行或同列批量填充 |
 | `Ctrl+Z` | **撤销**上一次染色操作（最多 50 步） |
 | `O` | **载入已有地图**，继续编辑 |
-| `E` | **导出**为 `config/<name>_map_config.py` |
+| `E` | **导出**为 `configs/<name>_map_config.py` |
 | `Q` / Esc | 退出 |
 
-### 导出格式
+### 导出手动迁移
 
-按 `E` 输入地图名后，生成 `<name>_map_config.py`。导出后建议重命名为 `map_N.py` 并添加 `MAP_ID = N` 头，以适配自动加载器。
+编辑器导出的格式为 `<name>_map_config.py`，需手动处理：
+
+1. 复制到 `configs/maps/src/map_N.py`
+2. 添加 `MAP_ID = N` 头部
+3. 确保 `MAP_CONFIG` 中的 `map_id` 引用 `MAP_ID`
+4. 运行 `python scripts/export_maps_to_json.py`
+5. 运行 `python scripts/validate_maps_json.py`
 
 ### 网格颜色对照
 

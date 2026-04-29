@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import subprocess
 import time
@@ -15,11 +14,11 @@ import torch
 from agent.agent import Agent
 from agent.checkpoint import build_config_snapshot, restore_rng_state
 from agent.definition import RolloutBatch
-from config.map_loader import load_map_config
-from metrics import MetricsLogger
+from configs.map_loader import load_map_config
+from services.metrics_service import MetricsLogger
 
 if TYPE_CHECKING:
-    from training_dashboard import MetricsCollector
+    from services.dashboard_service import MetricsCollector
 
 
 def prepare_batches(segment: RolloutBatch, mini_batch_size: int) -> list[RolloutBatch]:
@@ -31,19 +30,6 @@ def prepare_batches(segment: RolloutBatch, mini_batch_size: int) -> list[Rollout
         idx = indices[start:end]
         batches.append(segment[idx])
     return batches
-
-
-def _find_nearest_checkpoint(checkpoint_dir: Path) -> Path | None:
-    if not checkpoint_dir.exists():
-        return None
-    ckpt_files = list(checkpoint_dir.glob("checkpoint_*.pt"))
-    if not ckpt_files:
-        return None
-    def _step_from_name(p: Path) -> int:
-        m = re.search(r"checkpoint_(\d+)\.pt$", p.name)
-        return int(m.group(1)) if m else 0
-    ckpt_files.sort(key=_step_from_name, reverse=True)
-    return ckpt_files[0]
 
 
 def _get_git_info() -> dict[str, Any]:
@@ -98,6 +84,7 @@ class Trainer:
         resume_from: str | Path | None = None,
         run_id: str | None = None,
         config_path: Path | None = None,
+        metrics_config: dict[str, Any] | None = None,
     ):
         self.config = ppo_config
         self.default_npc_count = default_npc_count
@@ -114,6 +101,7 @@ class Trainer:
         self._resume_from = Path(resume_from) if resume_from else None
         self._run_id = run_id
         self._config_path = config_path
+        self._metrics_config = metrics_config or {"max_updates": 500, "max_episodes": 500}
 
         self.map_dir = self.artifacts_dir / "multi_map"
         self.map_dir.mkdir(parents=True, exist_ok=True)
@@ -126,6 +114,16 @@ class Trainer:
         self._current_stage_name = ""
         self._env_config_cache: dict[tuple, dict] = {}
 
+    # ---------- public properties ----------
+
+    @property
+    def run_id(self) -> str:
+        assert self._run_id is not None, (
+            "run_id not set. Use core.trainer_runner.run_training() or "
+            "pass run_id= explicitly."
+        )
+        return self._run_id
+
     # ---------- main entry ----------
 
     def train(self) -> None:
@@ -133,15 +131,19 @@ class Trainer:
             self._resume_training(self._resume_from)
             return
 
-        run_id = self._run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.checkpoint_dir = self.map_dir / "checkpoints" / run_id
+        self.checkpoint_dir = self.map_dir / "checkpoints" / self.run_id
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        self.logger = MetricsLogger(log_file=self.checkpoint_dir / "train.log", collector=self._collector)
+        self.logger = MetricsLogger(
+            log_file=self.checkpoint_dir / "train.log",
+            collector=self._collector,
+            max_updates=self._metrics_config["max_updates"],
+            max_episodes=self._metrics_config["max_episodes"],
+        )
         try:
             self._write_source_config()
-            self._write_run_meta(run_id)
+            self._write_run_meta(self.run_id)
 
-            self._print_config_summary(run_id)
+            self._print_config_summary(self.run_id)
 
             self._env = self._create_initial_env()
             self._reset_collectors()
@@ -217,13 +219,13 @@ class Trainer:
         config, map_id = self._pick_next_map(0)
         self._current_map_id = map_id
         self._map_name = f"map_{map_id}"
-        return GridWorldEnv(**config, enable_recording=False, render_mode=None)
+        return create_env(config, enable_recording=False, render_mode=None)
 
     def _create_next_env(self, global_step: int):
         config, map_id = self._pick_next_map(global_step)
         self._current_map_id = map_id
         self._map_name = f"map_{map_id}"
-        return GridWorldEnv(**config, enable_recording=False, render_mode=None)
+        return create_env(config, enable_recording=False, render_mode=None)
 
     def _write_run_meta(self, run_id: str) -> None:
         c = self.config
@@ -505,13 +507,17 @@ class Trainer:
 
         restore_rng_state(ckpt.rng_state)
 
-        run_id = self._run_id or checkpoint_path.parent.name
-        self.checkpoint_dir = self.map_dir / "checkpoints" / run_id
+        self.checkpoint_dir = self.map_dir / "checkpoints" / self.run_id
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        self.logger = MetricsLogger(log_file=self.checkpoint_dir / "train.log", collector=self._collector)
+        self.logger = MetricsLogger(
+            log_file=self.checkpoint_dir / "train.log",
+            collector=self._collector,
+            max_updates=self._metrics_config["max_updates"],
+            max_episodes=self._metrics_config["max_episodes"],
+        )
         try:
             self.logger._emit("=" * 65)
-            self.logger._emit(f"  Resuming run [{run_id}] from checkpoint step {global_step}")
+            self.logger._emit(f"  Resuming run [{self.run_id}] from checkpoint step {global_step}")
             self.logger._emit(f"  Checkpoint: {checkpoint_path}")
             self.logger._emit("=" * 65)
 
@@ -546,4 +552,4 @@ class Trainer:
             self.logger.close()
 
 
-from env import GridWorldEnv
+from env.factory import create_env

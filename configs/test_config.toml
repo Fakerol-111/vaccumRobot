@@ -2,7 +2,7 @@
 # 所有评估参数在这里统一修改，无需通过命令行传入。
 
 [test]
-# 要测评的地图 ID 列表（对应 config/map_N.py）
+# 要测评的地图 ID 列表（对应 configs/map_N.py）
 maps = [1, 2, 3, 4]
 
 # 每张地图测评的 episode 数量

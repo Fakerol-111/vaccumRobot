@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from train_sync import main
+from scripts.train import main
 
 
 if __name__ == "__main__":
