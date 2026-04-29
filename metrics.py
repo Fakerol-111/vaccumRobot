@@ -10,16 +10,27 @@ if TYPE_CHECKING:
 
 
 class MetricsLogger:
-    def __init__(self, log_file: Path | None = None, collector: MetricsCollector | None = None):
+    def __init__(
+        self,
+        log_file: Path | None = None,
+        collector: MetricsCollector | None = None,
+        max_updates: int = 500,
+        max_episodes: int = 500,
+    ):
         self.cleaned_list: list[int] = []
         self.steps_list: list[int] = []
         self.charge_list: list[int] = []
         self.reward_list: list[float] = []
+        self._max_episodes = max_episodes
 
         self.update_rewards: list[float] = []
         self.policy_losses: list[float] = []
         self.value_losses: list[float] = []
         self.entropies: list[float] = []
+        self._max_updates = max_updates
+
+        self._total_episodes = 0
+        self._total_updates = 0
 
         self._ema_alpha = 2.0 / 101.0
         self._ema_cleaned = 0.0
@@ -43,12 +54,20 @@ class MetricsLogger:
         reward_sum: float,
         map_name: str = "",
     ) -> None:
+        self._total_episodes += 1
+        episode_no = self._total_episodes
+
         self.cleaned_list.append(cleaned)
         self.steps_list.append(steps)
         self.charge_list.append(charge_count)
         self.reward_list.append(reward_sum)
+        if len(self.cleaned_list) > self._max_episodes:
+            self.cleaned_list.pop(0)
+            self.steps_list.pop(0)
+            self.charge_list.pop(0)
+            self.reward_list.pop(0)
 
-        if self.episode_count == 1:
+        if episode_no == 1:
             self._ema_cleaned = float(cleaned)
         else:
             self._ema_cleaned = self._ema_alpha * float(cleaned) + (1 - self._ema_alpha) * self._ema_cleaned
@@ -57,7 +76,7 @@ class MetricsLogger:
 
         map_tag = f"[{map_name}] " if map_name else ""
         msg = (
-            f"[Episode {self.episode_count:>4d}] "
+            f"[Episode {episode_no:>4d}] "
             f"{map_tag}"
             f"cleaned={cleaned:>5d}  steps={steps:>4d}  "
             f"charges={charge_count:>2d}  "
@@ -69,7 +88,7 @@ class MetricsLogger:
 
         if self._collector is not None:
             self._collector.add_event("episode", {
-                "episode": self.episode_count,
+                "episode": episode_no,
                 "map_name": map_name,
                 "cleaned": cleaned,
                 "steps": steps,
@@ -82,14 +101,22 @@ class MetricsLogger:
     # ---------- update ----------
 
     def log_update(self, reward: float, policy_loss: float, value_loss: float, entropy: float) -> None:
+        self._total_updates += 1
+        update_idx = self._total_updates
+
         self.update_rewards.append(reward)
         self.policy_losses.append(policy_loss)
         self.value_losses.append(value_loss)
         self.entropies.append(entropy)
+        if len(self.update_rewards) > self._max_updates:
+            self.update_rewards.pop(0)
+            self.policy_losses.pop(0)
+            self.value_losses.pop(0)
+            self.entropies.pop(0)
 
         if self._collector is not None:
             self._collector.add_event("update", {
-                "update_idx": self.update_count,
+                "update_idx": update_idx,
                 "reward": reward,
                 "policy_loss": policy_loss,
                 "value_loss": value_loss,
@@ -172,11 +199,11 @@ class MetricsLogger:
 
     @property
     def episode_count(self) -> int:
-        return len(self.cleaned_list)
+        return self._total_episodes
 
     @property
     def update_count(self) -> int:
-        return len(self.update_rewards)
+        return self._total_updates
 
     # ---------- internal ----------
 

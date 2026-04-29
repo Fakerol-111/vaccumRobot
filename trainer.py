@@ -137,38 +137,41 @@ class Trainer:
         self.checkpoint_dir = self.map_dir / "checkpoints" / run_id
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.logger = MetricsLogger(log_file=self.checkpoint_dir / "train.log", collector=self._collector)
-        self._write_source_config()
-        self._write_run_meta(run_id)
+        try:
+            self._write_source_config()
+            self._write_run_meta(run_id)
 
-        self._print_config_summary(run_id)
+            self._print_config_summary(run_id)
 
-        self._env = self._create_initial_env()
-        self._reset_collectors()
-        self._episode_steps = 0
-        self._episode_reward = 0.0
-        global_step, start_time = 0, time.time()
-        payload = self._env.reset(seed=self._base_seed + self._episode_counter, options={"mode": "train"})
-        self.agent.preprocessor.reset()
+            self._env = self._create_initial_env()
+            self._reset_collectors()
+            self._episode_steps = 0
+            self._episode_reward = 0.0
+            global_step, start_time = 0, time.time()
+            payload = self._env.reset(seed=self._base_seed + self._episode_counter, options={"mode": "train"})
+            self.agent.preprocessor.reset()
 
-        while global_step < self.config.total_timesteps:
-            self._log_stage_transition(global_step)
-            payload, global_step = self._collect_batch(payload, global_step)
+            while global_step < self.config.total_timesteps:
+                self._log_stage_transition(global_step)
+                payload, global_step = self._collect_batch(payload, global_step)
 
-            if self._buffer_is_full():
-                rollout = self._build_rollout_batch(payload)
-                loss_info = self._train_step(rollout)
-                self._clear_collectors()
-                self._record_update(rollout, loss_info)
-                self._log_progress(global_step, start_time)
+                if self._buffer_is_full():
+                    rollout = self._build_rollout_batch(payload)
+                    loss_info = self._train_step(rollout)
+                    self._clear_collectors()
+                    self._record_update(rollout, loss_info)
+                    self._log_progress(global_step, start_time)
 
-            if self._should_checkpoint(global_step):
-                self._save_checkpoint(global_step)
+                if self._should_checkpoint(global_step):
+                    self._save_checkpoint(global_step)
 
-        self._env.close()
-        self._save_checkpoint(global_step)
-        self.logger._emit(f"Model saved to {self.checkpoint_dir}")
-        self._final_summary(start_time, global_step)
-        self.logger.close()
+            self._save_checkpoint(global_step)
+            self.logger._emit(f"Model saved to {self.checkpoint_dir}")
+            self._final_summary(start_time, global_step)
+        finally:
+            if self._env is not None:
+                self._env.close()
+            self.logger.close()
 
     # ---------- curriculum / map helpers ----------
 
@@ -506,39 +509,41 @@ class Trainer:
         self.checkpoint_dir = self.map_dir / "checkpoints" / run_id
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.logger = MetricsLogger(log_file=self.checkpoint_dir / "train.log", collector=self._collector)
+        try:
+            self.logger._emit("=" * 65)
+            self.logger._emit(f"  Resuming run [{run_id}] from checkpoint step {global_step}")
+            self.logger._emit(f"  Checkpoint: {checkpoint_path}")
+            self.logger._emit("=" * 65)
 
-        self.logger._emit("=" * 65)
-        self.logger._emit(f"  Resuming run [{run_id}] from checkpoint step {global_step}")
-        self.logger._emit(f"  Checkpoint: {checkpoint_path}")
-        self.logger._emit("=" * 65)
+            self._env = self._create_next_env(global_step)
+            self._reset_collectors()
+            self._episode_steps = 0
+            self._episode_reward = 0.0
+            start_time = time.time()
+            payload = self._env.reset(seed=self._base_seed + self._episode_counter, options={"mode": "train"})
+            self.agent.preprocessor.reset()
 
-        self._env = self._create_next_env(global_step)
-        self._reset_collectors()
-        self._episode_steps = 0
-        self._episode_reward = 0.0
-        start_time = time.time()
-        payload = self._env.reset(seed=self._base_seed + self._episode_counter, options={"mode": "train"})
-        self.agent.preprocessor.reset()
+            while global_step < self.config.total_timesteps:
+                self._log_stage_transition(global_step)
+                payload, global_step = self._collect_batch(payload, global_step)
 
-        while global_step < self.config.total_timesteps:
-            self._log_stage_transition(global_step)
-            payload, global_step = self._collect_batch(payload, global_step)
+                if self._buffer_is_full():
+                    rollout = self._build_rollout_batch(payload)
+                    loss_info = self._train_step(rollout)
+                    self._clear_collectors()
+                    self._record_update(rollout, loss_info)
+                    self._log_progress(global_step, start_time)
 
-            if self._buffer_is_full():
-                rollout = self._build_rollout_batch(payload)
-                loss_info = self._train_step(rollout)
-                self._clear_collectors()
-                self._record_update(rollout, loss_info)
-                self._log_progress(global_step, start_time)
+                if self._should_checkpoint(global_step):
+                    self._save_checkpoint(global_step)
 
-            if self._should_checkpoint(global_step):
-                self._save_checkpoint(global_step)
-
-        self._env.close()
-        self._save_checkpoint(global_step)
-        self.logger._emit(f"Model saved to {self.checkpoint_dir}")
-        self._final_summary(start_time, global_step)
-        self.logger.close()
+            self._save_checkpoint(global_step)
+            self.logger._emit(f"Model saved to {self.checkpoint_dir}")
+            self._final_summary(start_time, global_step)
+        finally:
+            if self._env is not None:
+                self._env.close()
+            self.logger.close()
 
 
 from env import GridWorldEnv

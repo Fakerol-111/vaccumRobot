@@ -241,10 +241,11 @@ def main(config_path: Path | None = None, resume_from: Path | str | None = None)
         resume_from=resolved_resume,
         config_path=config_path,
     )
-    trainer.train()
-
-    if dashboard_server is not None:
-        dashboard_server.stop()
+    try:
+        trainer.train()
+    finally:
+        if dashboard_server is not None:
+            dashboard_server.stop()
 
 
 if __name__ == "__main__":
