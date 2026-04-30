@@ -66,8 +66,10 @@ class TrajectoryRecorder:
         output.parent.mkdir(parents=True, exist_ok=True)
 
         fig, ax = plt.subplots(figsize=(10, 8))
+        fig.patch.set_facecolor("#111827")
+        ax.set_facecolor("#111827")
         fig.subplots_adjust(right=0.78)
-        cmap = ListedColormap(["#1e1e1e", "#ffffff", "#cdaa3c", "#dc3c3c", "#3c8cf0", "#50dc78"])
+        cmap = ListedColormap(["#6B7280", "#374151", "#FBBF24", "#FB7185", "#C084FC", "#60A5FA"])
 
         agent_path_x: list[int] = []
         agent_path_z: list[int] = []
@@ -76,32 +78,36 @@ class TrajectoryRecorder:
 
         first = self.frames[0]
         image = ax.imshow(first.rendered_map, cmap=cmap, vmin=0, vmax=5, origin="upper")
-        agent_scatter = ax.scatter([first.agent_position[0]], [first.agent_position[1]], c="#50dc78", s=60, label="agent")
+        agent_scatter = ax.scatter([first.agent_position[0]], [first.agent_position[1]], c="#60A5FA", s=80, label="agent", edgecolors="#DBEAFE", linewidths=1.5)
         npc_scatter = ax.scatter(
             [position[0] for position in first.npc_positions],
             [position[1] for position in first.npc_positions],
-            c="#dc3c3c",
+            c="#FB7185",
             s=50,
             label="npc",
         )
-        (agent_line,) = ax.plot([], [], color="#50dc78", linewidth=1.5)
+        (agent_line,) = ax.plot([], [], color="#60A5FA", linewidth=1.5, alpha=0.8)
         npc_lines = [ax.plot([], [], "--", linewidth=1.0)[0] for _ in first.npc_positions]
 
         legend_handles = [
-            Patch(facecolor="#1e1e1e", edgecolor="none", label="blocked"),
-            Patch(facecolor="#ffffff", edgecolor="#cccccc", label="clean"),
-            Patch(facecolor="#cdaa3c", edgecolor="none", label="dirty"),
-            Patch(facecolor="#3c8cf0", edgecolor="none", label="charging station"),
-            Line2D([0], [0], marker="o", color="w", markerfacecolor="#dc3c3c", markersize=8, label="npc"),
-            Line2D([0], [0], marker="o", color="w", markerfacecolor="#50dc78", markersize=8, label="agent"),
-            Line2D([0], [0], color="#50dc78", linewidth=1.5, label="agent path"),
-            Line2D([0], [0], color="#dc3c3c", linestyle="--", linewidth=1.0, label="npc path"),
+            Patch(facecolor="#6B7280", edgecolor="none", label="blocked"),
+            Patch(facecolor="#374151", edgecolor="#525252", label="floor"),
+            Patch(facecolor="#FBBF24", edgecolor="none", label="dirty"),
+            Patch(facecolor="#C084FC", edgecolor="none", label="charging station"),
+            Line2D([0], [0], marker="o", color="w", markerfacecolor="#FB7185", markersize=8, label="npc"),
+            Line2D([0], [0], marker="o", color="w", markerfacecolor="#60A5FA", markersize=8, label="agent"),
+            Line2D([0], [0], color="#60A5FA", linewidth=1.5, alpha=0.8, label="agent path"),
+            Line2D([0], [0], color="#FB7185", linestyle="--", linewidth=1.0, label="npc path"),
         ]
 
-        ax.set_title("Trajectory Replay")
-        ax.set_xlabel("x")
-        ax.set_ylabel("z")
-        ax.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0)
+        ax.set_title("Trajectory Replay", color="#E2E8F0", fontsize=14)
+        ax.set_xlabel("x", color="#94A3B8")
+        ax.set_ylabel("z", color="#94A3B8")
+        ax.tick_params(colors="#94A3B8", labelsize=9)
+        for spine in ax.spines.values():
+            spine.set_color("#334155")
+        ax.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0,
+                  facecolor="#1E293B", edgecolor="#334155", labelcolor="#E2E8F0")
 
         def update(frame_idx: int) -> list[Any]:
             frame = self.frames[frame_idx]
@@ -124,7 +130,8 @@ class TrajectoryRecorder:
 
             ax.set_title(
                 f"Step {frame.step_no} | Battery {frame.battery} | Score {frame.score}"
-                + (" | done" if frame.terminated or frame.truncated else "")
+                + (" | done" if frame.terminated or frame.truncated else ""),
+                color="#E2E8F0", fontsize=14,
             )
             return [image, agent_scatter, npc_scatter, agent_line, *npc_lines]
 

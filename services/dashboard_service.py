@@ -58,32 +58,32 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 </script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#0f1923;color:#d4dce8;min-height:100vh}
-.header{background:#1a2736;border-bottom:2px solid #2a7de1;padding:12px 24px;display:flex;justify-content:space-between;align-items:center}
-.header h1{font-size:20px;color:#5dade2}
-.header .info{display:flex;gap:24px;font-size:13px;color:#8899aa}
-.header .info span strong{color:#c8d6e5}
+body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#0F172A;color:#E2E8F0;min-height:100vh}
+.header{background:#1E293B;border-bottom:2px solid #38BDF8;padding:12px 24px;display:flex;justify-content:space-between;align-items:center}
+.header h1{font-size:20px;color:#38BDF8}
+.header .info{display:flex;gap:24px;font-size:13px;color:#94A3B8}
+.header .info span strong{color:#E2E8F0}
 .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;animation:pulse 1.5s infinite}
-.status-dot.connected{background:#2ecc71}
-.status-dot.disconnected{background:#e74c3c}
+.status-dot.connected{background:#10B981}
+.status-dot.disconnected{background:#F87171}
 .algo-badge{display:inline-block;padding:2px 10px;border-radius:4px;font-weight:bold;font-size:12px;margin-left:8px}
-.algo-badge.ppo{background:#2a7de1;color:#fff}
-.algo-badge.grpo{background:#8e44ad;color:#fff}
+.algo-badge.ppo{background:#F97316;color:#fff}
+.algo-badge.grpo{background:#A78BFA;color:#fff}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
 .content{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px}
-.chart-box{background:#1a2736;border-radius:8px;padding:12px;border:1px solid #243447}
-.chart-box h3{font-size:14px;color:#7f9bb5;margin-bottom:8px}
+.chart-box{background:#1E293B;border-radius:8px;padding:12px;border:1px solid #334155}
+.chart-box h3{font-size:14px;color:#94A3B8;margin-bottom:8px}
 .chart-box canvas{max-height:280px}
 .hidden{display:none!important}
-.log-panel{grid-column:1/-1;background:#1a2736;border-radius:8px;padding:12px;border:1px solid #243447;overflow:hidden;display:flex;flex-direction:column}
-.log-panel h3{font-size:14px;color:#7f9bb5;margin-bottom:8px}
-.log-container{flex:1;overflow-y:auto;font-family:'Cascadia Code','Fira Code','Consolas',monospace;font-size:12px;line-height:1.6;max-height:200px;background:#0d1520;border-radius:4px;padding:8px}
-.log-line{padding:1px 0;border-bottom:1px solid #151f2a}
-.log-line.episode{color:#5dade2}
-.log-line.update{color:#f0c060}
-.log-line.stage{color:#2ecc71;font-weight:bold}
-.log-line.info{color:#8899aa}
-.timestamp{color:#566b80;margin-right:8px}
+.log-panel{grid-column:1/-1;background:#1E293B;border-radius:8px;padding:12px;border:1px solid #334155;overflow:hidden;display:flex;flex-direction:column}
+.log-panel h3{font-size:14px;color:#94A3B8;margin-bottom:8px}
+.log-container{flex:1;overflow-y:auto;font-family:'Cascadia Code','Fira Code','Consolas',monospace;font-size:12px;line-height:1.6;max-height:200px;background:#0F172A;border-radius:4px;padding:8px}
+.log-line{padding:1px 0;border-bottom:1px solid #1E293B}
+.log-line.episode{color:#38BDF8}
+.log-line.update{color:#FACC15}
+.log-line.stage{color:#10B981;font-weight:bold}
+.log-line.info{color:#94A3B8}
+.timestamp{color:#64748B;margin-right:8px}
 @media(max-width:1100px){.content{grid-template-columns:1fr}}
 </style>
 </head>
@@ -121,20 +121,20 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#0f1923;colo
 <script>
 const MAX_POINTS = 300;
 const COLORS = {
-    policy_loss: '#e74c3c',
-    value_loss: '#3498db',
-    entropy: '#2ecc71',
-    total_loss: '#e67e22',
-    reward: '#f0c060',
-    ema_cleaned: '#5dade2',
-    cleaned: '#a569bd',
-    steps: '#48c9b0',
-    update_reward: '#f5b041',
-    mean_score: '#1abc9c',
-    std_score: '#e67e22',
-    kl: '#9b59b6',
-    grpo_total_loss: '#e74c3c',
-    policy_loss_grpo: '#e74c3c'
+    policy_loss: .F97316.,
+    value_loss: .38BDF8.,
+    entropy: .10B981.,
+    total_loss: .F97316.,
+    reward: .FACC15.,
+    ema_cleaned: .38BDF8.,
+    cleaned: .A78BFA.,
+    steps: .10B981.,
+    update_reward: .FACC15.,
+    mean_score: .A78BFA.,
+    std_score: .38BDF8.,
+    kl: .FB7185.,
+    grpo_total_loss: .F97316.,
+    policy_loss_grpo: .FB7185.
 };
 
 const Y_PRECISION = {
@@ -173,19 +173,19 @@ function createChart(canvasId, title) {
                 axis: 'x'
             },
             scales: {
-                x:{type:'linear', ticks:{color:'#566b80',font:{size:10}}, grid:{color:'#1e3040'}},
-                y:{ticks:{color:'#566b80',font:{size:10}}, grid:{color:'#1e3040'}}
+                x:{type:'linear', ticks:{color:'#64748B',font:{size:10}}, grid:{color:'#1E293B'}},
+                y:{ticks:{color:'#64748B',font:{size:10}}, grid:{color:'#1E293B'}}
             },
             plugins: {
-                legend:{labels:{color:'#7f9bb5',font:{size:11},usePointStyle:true,padding:16}},
+                legend:{labels:{color:'#94A3B8',font:{size:11},usePointStyle:true,padding:16}},
                 tooltip: {
                     enabled: true,
                     mode: 'nearest',
                     intersect: false,
-                    backgroundColor: 'rgba(15,25,35,0.95)',
-                    titleColor: '#8899aa',
-                    bodyColor: '#d4dce8',
-                    borderColor: '#2a7de1',
+                    backgroundColor: 'rgba(15,23,42,0.95)',
+                    titleColor: '#94A3B8',
+                    bodyColor: '#E2E8F0',
+                    borderColor: '#38BDF8',
                     borderWidth: 1,
                     padding: 8,
                     titleFont: {size: 11},
