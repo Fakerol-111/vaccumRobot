@@ -72,7 +72,7 @@ class MapEditor:
         self._MAX_UNDO = 50
         self._op_count = 0
         self._AUTO_CHECKPOINT = 10
-        self._autosave_path = PROJECT_ROOT / "config" / ".editor_autosave.npy"
+        self._autosave_path = PROJECT_ROOT / "configs" / ".editor_autosave.npy"
 
         self._fig, self._ax = plt.subplots(figsize=(9, 9))
         self._fig.subplots_adjust(left=0.01, right=0.99, bottom=0.01, top=0.94)
@@ -331,7 +331,7 @@ class MapEditor:
     def _load_map(self) -> None:
         path_str = filedialog.askopenfilename(
             title="选择地图配置文件",
-            initialdir=str(PROJECT_ROOT / "config"),
+            initialdir=str(PROJECT_ROOT / "configs"),
             filetypes=[("Map Config", "*_map_config.py"), ("All", "*")],
         )
         if not path_str:
@@ -547,7 +547,7 @@ class MapEditor:
             return
         name = name.strip()
 
-        out = PROJECT_ROOT / "config" / f"{name}_map_config.py"
+        out = PROJECT_ROOT / "configs" / f"{name}_map_config.py"
 
         grid_lines = self._format_grid()
         agent_pool = [f"        ({x}, {z})," for x, z in self._agent_spawns]

@@ -47,7 +47,7 @@ def main(config_path: Path | None = None):
         output_dir=Path(test_cfg["output_dir"]) if test_cfg["output_dir"] else None,
         ppo_config=train_cfg.ppo,
         env_config=train_cfg.env,
-        artifacts_root=PROJECT_ROOT / "artifacts",
+        artifacts_root=PROJECT_ROOT / train_cfg.training["artifacts_dir"],
     )
 
     result = run_evaluation(req)

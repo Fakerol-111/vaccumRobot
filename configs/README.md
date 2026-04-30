@@ -18,7 +18,6 @@ configs/
 ├── train_config.toml              # 训练入口配置
 ├── test_config.toml               # 测试入口配置
 ├── map_loader.py                  # 运行时加载器（只读 JSON）
-├── map_editor.py                  # 图形化地图编辑器
 └── README.md
 ```
 
@@ -273,15 +272,15 @@ cfgs = load_map_configs([1, 2, 3])    # 批量读取
 
 ---
 
-## 地图编辑器 (map_editor.py)
+## 地图编辑器 (scripts/map_editor.py)
 
 图形化的地图绘制工具，用鼠标绘制网格地图并导出配置。
 
 ### 启动
 
 ```bash
-python configs/map_editor.py            # 默认 128×128
-python configs/map_editor.py 64         # 指定尺寸 64×64
+python scripts/map_editor.py            # 默认 128×128
+python scripts/map_editor.py 64         # 指定尺寸 64×64
 ```
 
 首屏上方标题栏会显示当前画笔类型、放置模式、实体数量等信息。
@@ -314,7 +313,7 @@ python configs/map_editor.py 64         # 指定尺寸 64×64
 | `L` | **坐标线染色**：输入起止坐标，同行或同列批量填充 |
 | `Ctrl+Z` | **撤销**上一次染色操作（最多 50 步） |
 | `O` | **载入已有地图**，继续编辑 |
-| `E` | **导出**为 `configs/<name>_map_config.py` |
+| `E` | **导出**为 `<name>_map_config.py`（默认输出到 `configs/`） |
 | `Q` / Esc | 退出 |
 
 ### 导出手动迁移

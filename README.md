@@ -40,13 +40,13 @@ vaccumRobot/
 │   ├── export_maps_to_json.py# 地图 .py → .json 导出
 │   ├── validate_maps_json.py # 地图 JSON 校验
 │   ├── plot_maps.py          # 地图可视化
+│   ├── map_editor.py         # 交互式地图编辑器（鼠标绘制）
 │
 ├── configs/                  # 配置文件
 │   ├── train_config.toml     # 训练配置（PPO 超参 / 环境 / 课程 / Dashboard）
 │   ├── test_config.toml      # 评估配置（地图 / episode / 断点选择）
 │   ├── runtime_config.py     # 统一配置加载器（TOML → SimpleNamespace / dict）
 │   ├── map_loader.py         # 地图 JSON 加载与校验
-│   ├── map_editor.py         # 地图编辑器
 │   ├── maps/                 # 地图数据
 │       ├── map_1.json ~ map_4.json  # 运行时地图数据
 │       └── src/                      # 地图生成源码

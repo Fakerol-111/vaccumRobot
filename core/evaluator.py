@@ -7,6 +7,8 @@ from typing import Any
 import numpy as np
 
 from agent.agent import Agent
+from env import TrajectoryRecorder
+from env.factory import create_env
 
 
 @dataclass
@@ -43,8 +45,6 @@ def evaluate(
     env_kwargs: dict[str, Any],
     num_episodes: int = 3,
 ) -> dict:
-    from env.factory import create_env
-
     eval_env = create_env(env_kwargs, enable_recording=False, render_mode=None)
 
     episode_rewards: list[float] = []
@@ -80,9 +80,6 @@ def evaluate_with_recording(
     eval_dir: Path,
     num_episodes: int = 10,
 ) -> dict:
-    from env import TrajectoryRecorder
-    from env.factory import create_env
-
     eval_dir.mkdir(parents=True, exist_ok=True)
 
     episode_rewards: list[float] = []
@@ -142,9 +139,6 @@ def evaluate_multi_map_with_recording(
     num_episodes: int = 10,
     gif_fps: int = 10,
 ) -> dict:
-    from env import TrajectoryRecorder
-    from env.factory import create_env
-
     eval_dir.mkdir(parents=True, exist_ok=True)
 
     all_results: list[MapEvalResult] = []

@@ -1,32 +1,20 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
-from core.paths import get_checkpoints_root
+from core.paths import find_checkpoint, find_run_dir, get_checkpoints_root
 
 
 def find_latest_run(checkpoints_root: Path) -> Path | None:
-    if not checkpoints_root.is_dir():
-        return None
-    runs = sorted(d for d in checkpoints_root.iterdir() if d.is_dir())
-    return runs[-1] if runs else None
+    return find_run_dir(checkpoints_root, run_id=None)
 
 
 def find_latest_checkpoint(run_dir: Path) -> Path | None:
-    if not run_dir.is_dir():
-        return None
-    ckpt_files = sorted(
-        run_dir.glob("checkpoint_*.pt"),
-        key=lambda p: _step_from_name(p),
-        reverse=True,
-    )
-    return ckpt_files[0] if ckpt_files else None
+    return find_checkpoint(run_dir, step=None)
 
 
 def find_checkpoint_by_step(run_dir: Path, step: int) -> Path | None:
-    path = run_dir / f"checkpoint_{step}.pt"
-    return path if path.exists() else None
+    return find_checkpoint(run_dir, step=step)
 
 
 def resolve_checkpoint(
@@ -77,8 +65,3 @@ def resolve_auto_resume(artifacts_root: Path) -> Path | None:
 
 def validate_checkpoint_path(path: Path) -> bool:
     return path.exists() and path.suffix == ".pt"
-
-
-def _step_from_name(p: Path) -> int:
-    m = re.search(r"checkpoint_(\d+)\.pt$", p.name)
-    return int(m.group(1)) if m else 0

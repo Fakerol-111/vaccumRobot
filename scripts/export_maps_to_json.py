@@ -23,7 +23,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 MAP_IDS = [1, 2, 3, 4]
-SOURCE_DIR = PROJECT_ROOT / "configs"
 OUTPUT_DIR = PROJECT_ROOT / "configs" / "maps"
 SCHEMA_VERSION = 1
 

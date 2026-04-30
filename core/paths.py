@@ -8,19 +8,23 @@ def get_artifacts_root(artifacts_dir: str | Path) -> Path:
 
 
 def get_checkpoints_root(artifacts_root: Path) -> Path:
+    """Root directory for all training run checkpoints."""
     return artifacts_root / "multi_map" / "checkpoints"
 
 
 def get_run_dir(checkpoints_root: Path, run_id: str) -> Path:
+    """Directory for a specific training run (checkpoints live here directly)."""
     return checkpoints_root / run_id
 
 
-def get_checkpoint_dir(run_dir: Path) -> Path:
-    return run_dir / "checkpoints"
+def get_checkpoint_path(run_dir: Path, step: int) -> Path:
+    """Path to a specific checkpoint file within a run directory."""
+    return run_dir / f"checkpoint_{step}.pt"
 
 
-def get_checkpoint_path(checkpoint_dir: Path, step: int) -> Path:
-    return checkpoint_dir / f"checkpoint_{step}.pt"
+def get_run_info_path(run_dir: Path) -> Path:
+    """Path to run_info.json within a run directory."""
+    return run_dir / "run_info.json"
 
 
 def get_train_log_path(run_dir: Path) -> Path:
@@ -28,6 +32,7 @@ def get_train_log_path(run_dir: Path) -> Path:
 
 
 def get_eval_dir(run_dir: Path, step: int, custom: Path | None = None) -> Path:
+    """Directory for evaluation artifacts. Uses step-based naming by default."""
     return custom if custom is not None else run_dir / f"eval_{step}"
 
 
@@ -43,7 +48,7 @@ def find_run_dir(checkpoints_root: Path, run_id: str | None) -> Path | None:
 
 def find_checkpoint(run_dir: Path, step: int | None = None) -> Path | None:
     if step is not None:
-        path = run_dir / f"checkpoint_{step}.pt"
+        path = get_checkpoint_path(run_dir, step)
         return path if path.exists() else None
     checkpoints = sorted(
         run_dir.glob("checkpoint_*.pt"),
@@ -52,11 +57,11 @@ def find_checkpoint(run_dir: Path, step: int | None = None) -> Path | None:
     return checkpoints[-1] if checkpoints else None
 
 
-def find_nearest_checkpoint(checkpoint_dir: Path) -> Path | None:
+def find_nearest_checkpoint(directory: Path) -> Path | None:
     """Find the checkpoint with the highest step number in a directory."""
-    if not checkpoint_dir.exists():
+    if not directory.exists():
         return None
-    ckpt_files = list(checkpoint_dir.glob("checkpoint_*.pt"))
+    ckpt_files = list(directory.glob("checkpoint_*.pt"))
     if not ckpt_files:
         return None
 

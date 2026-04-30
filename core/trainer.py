@@ -15,6 +15,8 @@ from agent.agent import Agent
 from agent.checkpoint import build_config_snapshot, restore_rng_state
 from agent.definition import RolloutBatch
 from configs.map_loader import load_map_config
+from core.paths import get_checkpoints_root, get_checkpoint_path, get_run_info_path, get_run_dir, get_train_log_path
+from env.factory import create_env
 from services.metrics_service import MetricsLogger
 
 if TYPE_CHECKING:
@@ -103,8 +105,6 @@ class Trainer:
         self._config_path = config_path
         self._metrics_config = metrics_config or {"max_updates": 500, "max_episodes": 500}
 
-        self.map_dir = self.artifacts_dir / "multi_map"
-        self.map_dir.mkdir(parents=True, exist_ok=True)
         self.agent = Agent(ppo_config, self.device)
 
         self._env: Any = None
@@ -132,10 +132,10 @@ class Trainer:
             self._resume_training(self._resume_from)
             return
 
-        self.checkpoint_dir = self.map_dir / "checkpoints" / self.run_id
+        self.checkpoint_dir = get_run_dir(get_checkpoints_root(self.artifacts_dir), self.run_id)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.logger = MetricsLogger(
-            log_file=self.checkpoint_dir / "train.log",
+            log_file=get_train_log_path(self.checkpoint_dir),
             collector=self._collector,
             max_updates=self._metrics_config["max_updates"],
             max_episodes=self._metrics_config["max_episodes"],
@@ -264,7 +264,7 @@ class Trainer:
             "device": str(self.device),
             "git": _get_git_info(),
         }
-        meta_path = self.checkpoint_dir / "run_info.json"
+        meta_path = get_run_info_path(self.checkpoint_dir)
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
 
@@ -486,7 +486,7 @@ class Trainer:
         self.logger.print_summary(global_step, fps)
 
     def _save_checkpoint(self, global_step: int) -> None:
-        path = self.checkpoint_dir / f"checkpoint_{global_step}.pt"
+        path = get_checkpoint_path(self.checkpoint_dir, global_step)
         config_snapshot = build_config_snapshot(self)
         self.agent.save_checkpoint(
             path=path,
@@ -514,10 +514,10 @@ class Trainer:
 
         restore_rng_state(ckpt.rng_state)
 
-        self.checkpoint_dir = self.map_dir / "checkpoints" / self.run_id
+        self.checkpoint_dir = get_run_dir(get_checkpoints_root(self.artifacts_dir), self.run_id)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.logger = MetricsLogger(
-            log_file=self.checkpoint_dir / "train.log",
+            log_file=get_train_log_path(self.checkpoint_dir),
             collector=self._collector,
             max_updates=self._metrics_config["max_updates"],
             max_episodes=self._metrics_config["max_episodes"],
@@ -557,6 +557,3 @@ class Trainer:
             if self._env is not None:
                 self._env.close()
             self.logger.close()
-
-
-from env.factory import create_env
