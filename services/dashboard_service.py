@@ -105,10 +105,10 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#0F172A;colo
 <div class="chart-box ppo-chart"><h3>Value Loss</h3><canvas id="chart-value-loss"></canvas></div>
 <div class="chart-box ppo-chart"><h3>Entropy</h3><canvas id="chart-entropy"></canvas></div>
 <div class="chart-box ppo-chart"><h3>Total Loss (Policy + Value)</h3><canvas id="chart-total-loss"></canvas></div>
-<div class="chart-box grpo-chart hidden"><h3>Group Mean Score</h3><canvas id="chart-mean-score"></canvas></div>
-<div class="chart-box grpo-chart hidden"><h3>Group Std Score</h3><canvas id="chart-std-score"></canvas></div>
-<div class="chart-box grpo-chart hidden"><h3>KL Divergence</h3><canvas id="chart-kl"></canvas></div>
-<div class="chart-box grpo-chart hidden"><h3>Total Loss</h3><canvas id="chart-total-loss-grpo"></canvas></div>
+<div class="chart-box grpo-chart"><h3>Group Mean Score</h3><canvas id="chart-mean-score"></canvas></div>
+<div class="chart-box grpo-chart"><h3>Group Std Score</h3><canvas id="chart-std-score"></canvas></div>
+<div class="chart-box grpo-chart"><h3>KL Divergence</h3><canvas id="chart-kl"></canvas></div>
+<div class="chart-box grpo-chart"><h3>Total Loss</h3><canvas id="chart-total-loss-grpo"></canvas></div>
 <div class="chart-box"><h3>Episode Reward &amp; EMA Cleaned</h3><canvas id="chart-reward"></canvas></div>
 <div class="chart-box"><h3>Episode 指标 (Cleaned / Steps)</h3><canvas id="chart-episode"></canvas></div>
 <div class="chart-box"><h3>Update Mean Reward</h3><canvas id="chart-update-reward"></canvas></div>
@@ -121,20 +121,20 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#0F172A;colo
 <script>
 const MAX_POINTS = 300;
 const COLORS = {
-    policy_loss: .F97316.,
-    value_loss: .38BDF8.,
-    entropy: .10B981.,
-    total_loss: .F97316.,
-    reward: .FACC15.,
-    ema_cleaned: .38BDF8.,
-    cleaned: .A78BFA.,
-    steps: .10B981.,
-    update_reward: .FACC15.,
-    mean_score: .A78BFA.,
-    std_score: .38BDF8.,
-    kl: .FB7185.,
-    grpo_total_loss: .F97316.,
-    policy_loss_grpo: .FB7185.
+    policy_loss: '#F97316',
+    value_loss: '#38BDF8',
+    entropy: '#10B981',
+    total_loss: '#F97316',
+    reward: '#FACC15',
+    ema_cleaned: '#38BDF8',
+    cleaned: '#A78BFA',
+    steps: '#10B981',
+    update_reward: '#FACC15',
+    mean_score: '#A78BFA',
+    std_score: '#38BDF8',
+    kl: '#FB7185',
+    grpo_total_loss: '#F97316',
+    policy_loss_grpo: '#FB7185'
 };
 
 const Y_PRECISION = {
@@ -154,6 +154,12 @@ function switchAlgo(name) {
     const badge = document.getElementById('algo-badge');
     badge.textContent = name.toUpperCase();
     badge.className = 'algo-badge ' + name;
+    setTimeout(function() {
+        document.querySelectorAll('.chart-box:not(.hidden) canvas').forEach(function(c) {
+            var ch = Chart.getChart(c);
+            if (ch) ch.resize();
+        });
+    }, 100);
 }
 
 function createChart(canvasId, title) {
@@ -254,8 +260,7 @@ const stepsDs = addDataset(episodeChart, 'Steps', COLORS.steps);
 const updateRewardChart = createChart('chart-update-reward');
 const updateRewardDs = addDataset(updateRewardChart, 'Mean Reward', COLORS.update_reward);
 
-let lossCounter = 0, rewardCounter = 0, episodeCounter = 0, updateRewardCounter = 0;
-let grpoCounter = 0;
+let lossCounter = 0, episodeCounter = 0, updateRewardCounter = 0, grpoCounter = 0;
 
 function addPoint(ds, counterRef, x, y) {
     if (!ds) return;
@@ -276,6 +281,15 @@ function addLog(className, timestamp, msg) {
 function formatTime(ts) {
     const d = new Date(ts * 1000);
     return d.toLocaleTimeString('zh-CN');
+}
+
+async function initAlgo() {
+    try {
+        const resp = await fetch('/api/info');
+        if (!resp.ok) return;
+        const info = await resp.json();
+        if (info && info.algo) switchAlgo(info.algo);
+    } catch (e) {}
 }
 
 async function poll() {
@@ -318,7 +332,7 @@ async function poll() {
                 addPoint(klDs, null, idx, d.kl);
                 addPoint(grpoTotalLossDs, null, idx, d.total_loss);
                 addPoint(grpoPolicyLossDs, null, idx, d.policy_loss);
-                addPoint(updateRewardDs, null, idx, d.mean_reward);
+                addPoint(updateRewardDs, null, idx, d.mean_score);
                 addLog('update', ts, 'group_update=' + idx + ' total_loss=' + d.total_loss.toFixed(4) + ' policy_loss=' + d.policy_loss.toFixed(4) + ' mean_score=' + d.mean_score.toFixed(4) + ' std_score=' + d.std_score.toFixed(4) + ' kl=' + d.kl.toFixed(6) + ' entropy=' + (d.entropy||0).toFixed(4));
             } else if (evt.type === 'summary') {
                 document.getElementById('h-step').textContent = d.step;
@@ -348,9 +362,11 @@ async function poll() {
     }
 }
 
+document.querySelectorAll('.grpo-chart').forEach(function(el) { el.classList.add('hidden'); });
+
 window._lastEventTs = 0;
+initAlgo().then(poll);
 setInterval(poll, 1000);
-poll();
 </script>
 </body>
 </html>"""
@@ -371,6 +387,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._serve_html()
         elif path == "/api/data":
             self._serve_api_data(params)
+        elif path == "/api/info":
+            self._serve_api_info()
         else:
             self.send_response(404)
             self.end_headers()
@@ -402,6 +420,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _serve_api_info(self):
+        summary = self.collector.get_summary()
+        run_info = summary.get("run_info", {})
+        payload = json.dumps(run_info, ensure_ascii=False).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(payload)
+
 
 class DashboardServer:
     def __init__(self, collector: MetricsCollector, host: str = "0.0.0.0", port: int = 8088):
@@ -421,7 +450,7 @@ class DashboardServer:
 
     def stop(self) -> None:
         if self._server:
-            self._server.shutdown()
+            self._server.server_close()
             self._server = None
         if self._thread:
             self._thread.join(timeout=2)
