@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -7,6 +8,9 @@ from typing import Any
 
 import numpy as np
 import torch
+
+
+logger = logging.getLogger(__name__)
 
 
 CHECKPOINT_VERSION = "2.0"
@@ -76,13 +80,25 @@ def capture_rng_state() -> dict[str, Any]:
 
 def restore_rng_state(state: dict[str, Any]) -> None:
     if "torch" in state:
-        torch.set_rng_state(state["torch"])
+        try:
+            torch.set_rng_state(state["torch"])
+        except TypeError:
+            logger.warning("torch RNG state format mismatch, skipping restore")
     if "torch_cuda" in state and state["torch_cuda"] is not None:
-        torch.cuda.set_rng_state_all(state["torch_cuda"])
+        try:
+            torch.cuda.set_rng_state_all(state["torch_cuda"])
+        except TypeError:
+            pass
     if "numpy" in state:
-        np.random.set_state(state["numpy"])
+        try:
+            np.random.set_state(state["numpy"])
+        except (ValueError, TypeError):
+            logger.warning("numpy RNG state format mismatch, skipping restore")
     if "python" in state:
-        random.setstate(state["python"])
+        try:
+            random.setstate(state["python"])
+        except (ValueError, TypeError):
+            pass
 
 
 def build_config_snapshot(config, extra: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -103,7 +103,7 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#0F172A;colo
 <div class="content" id="chart-grid">
 <div class="chart-box ppo-chart"><h3>Policy Loss</h3><canvas id="chart-policy-loss"></canvas></div>
 <div class="chart-box ppo-chart"><h3>Value Loss</h3><canvas id="chart-value-loss"></canvas></div>
-<div class="chart-box ppo-chart"><h3>Entropy</h3><canvas id="chart-entropy"></canvas></div>
+<div class="chart-box"><h3>Entropy</h3><canvas id="chart-entropy"></canvas></div>
 <div class="chart-box ppo-chart"><h3>Total Loss (Policy + Value)</h3><canvas id="chart-total-loss"></canvas></div>
 <div class="chart-box grpo-chart"><h3>Group Mean Score</h3><canvas id="chart-mean-score"></canvas></div>
 <div class="chart-box grpo-chart"><h3>Group Std Score</h3><canvas id="chart-std-score"></canvas></div>
@@ -337,6 +337,7 @@ async function poll() {
                 addPoint(stdScoreDs, null, idx, d.std_score);
                 addPoint(klDs, null, idx, d.kl);
                 addPoint(gradNormDs, null, idx, d.grad_norm);
+                addPoint(entropyDs, null, idx, d.entropy);
                 addPoint(grpoTotalLossDs, null, idx, d.total_loss);
                 addPoint(grpoPolicyLossDs, null, idx, d.policy_loss);
                 addPoint(updateRewardDs, null, idx, d.mean_score);

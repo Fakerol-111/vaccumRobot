@@ -357,9 +357,12 @@ class GRPOAlgorithm(Algorithm):
             score = self._rollout_branch(a, env_config, self.config.branch_window, npc_trace)
             scores.append(score)
 
-        # 5. 组内归一化 → advantages
+        # 5. 组内均值中心化 → advantages
+        # 只减均值消除基线，不除以标准差（除以标准差会导致零和 advantages，
+        # 均匀分布下 log_prob 相同，与零和向量点积恒为 0，梯度消失）
+        entropy_coef = getattr(self.config, "entropy_coef", 0.0)
         scores_t = torch.tensor(scores, dtype=torch.float32, device=self.device)
-        advantages = (scores_t - scores_t.mean()) / (scores_t.std() + 1e-8)
+        advantages = scores_t - scores_t.mean()
 
         # 6. KL 散度（ref 无梯度，cur 含梯度）
         with torch.no_grad():
@@ -374,7 +377,7 @@ class GRPOAlgorithm(Algorithm):
 
         # 8. GRPO loss
         policy_loss = -(log_probs_t * advantages.detach()).mean()
-        total_loss = policy_loss + self.config.kl_coef * kl
+        total_loss = policy_loss + self.config.kl_coef * kl - entropy_coef * entropy
 
         # 9. 更新
         self.model.train()
@@ -442,7 +445,7 @@ class GRPOAlgorithm(Algorithm):
         torch.save(ckpt.to_dict(), str(path))
 
     def load_checkpoint(self, path: str | Path) -> Checkpoint:
-        data = torch.load(str(path), map_location=self.device, weights_only=True)
+        data = torch.load(str(path), map_location=self.device, weights_only=False)
         ckpt = Checkpoint.from_dict(data)
         self.model.load_state_dict(ckpt.model_state_dict)
         self.reference.load_state_dict(ckpt.model_state_dict)
