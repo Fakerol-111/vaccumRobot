@@ -173,6 +173,8 @@ class GridWorldEnv(gym.Env):
         self.npc_positions: list[tuple[int, int]] = []
         self.current_map = self.base_map.copy()
         self._mode = "train"
+        self._npc_trace: list[list[tuple[int, int]]] | None = None
+        self._npc_trace_idx: int = 0
 
         self.action_space = spaces.Discrete(len(self._ACTION_TO_DELTA))
         self.observation_space = spaces.Dict(
@@ -285,6 +287,57 @@ class GridWorldEnv(gym.Env):
 
     def close(self) -> None:
         return None
+
+    # ── state save / restore ─────────────────────────────
+
+    def get_state(self) -> dict[str, Any]:
+        """返回当前完整状态（含 np_random），用于后续 set_state 精确复原。"""
+        rng_state = None
+        try:
+            rng_state = self.np_random.bit_generator.state
+        except Exception:
+            pass
+        return {
+            "agent_position": self.agent_position,
+            "agent_battery": self.agent_battery,
+            "steps_taken": self.steps_taken,
+            "score": self.score,
+            "dirt_cleaned": self.dirt_cleaned,
+            "charge_count": self.charge_count,
+            "last_cleaned_cells": list(self.last_cleaned_cells),
+            "npc_positions": [tuple(p) for p in self.npc_positions],
+            "base_map": self.base_map.copy(),
+            "current_map": self.current_map.copy(),
+            "env_id": self.env_id,
+            "_mode": self._mode,
+            "rng_state": rng_state,
+        }
+
+    def set_state(self, state: dict[str, Any]) -> None:
+        """恢复到 get_state 保存的状态。"""
+        self.agent_position = state["agent_position"]
+        self.agent_battery = state["agent_battery"]
+        self.steps_taken = state["steps_taken"]
+        self.score = state["score"]
+        self.dirt_cleaned = state["dirt_cleaned"]
+        self.charge_count = state["charge_count"]
+        self.last_cleaned_cells = list(state["last_cleaned_cells"])
+        self.npc_positions = [tuple(p) for p in state["npc_positions"]]
+        self.base_map = state["base_map"].copy()
+        self.current_map = state["current_map"].copy()
+        self.env_id = state["env_id"]
+        self._mode = state["_mode"]
+        rng_state = state.get("rng_state")
+        if rng_state is not None:
+            try:
+                self.np_random.bit_generator.state = rng_state
+            except Exception:
+                pass
+
+    def set_npc_trace(self, trace: list[list[tuple[int, int]]]) -> None:
+        """设置 NPC 轨迹覆盖：后续 _move_npcs 将沿 trace 移动，而非随机漫步。"""
+        self._npc_trace = [[tuple(p) for p in step] for step in trace]
+        self._npc_trace_idx = 0
 
     def _build_base_map(self, custom_map: np.ndarray | Iterable[Iterable[int]] | None) -> np.ndarray:
         if custom_map is None:
@@ -429,6 +482,12 @@ class GridWorldEnv(gym.Env):
                 raise ValueError(f"Charging station {station} exceeds grid bounds.")
 
     def _move_npcs(self) -> None:
+        if self._npc_trace is not None:
+            if self._npc_trace_idx < len(self._npc_trace):
+                self.npc_positions = [tuple(p) for p in self._npc_trace[self._npc_trace_idx]]
+                self._npc_trace_idx += 1
+            return
+
         if not self.npc_positions:
             return
 

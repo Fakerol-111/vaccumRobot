@@ -6,7 +6,8 @@ from typing import Any
 
 import numpy as np
 
-from agent.agent import Agent
+from agent.base import Algorithm
+from agent.preprocessor import Preprocessor
 from env import TrajectoryRecorder
 from env.factory import create_env
 
@@ -41,7 +42,8 @@ class MapEvalResult:
 
 
 def evaluate(
-    agent: Agent,
+    algorithm: Algorithm,
+    preprocessor: Preprocessor,
     env_kwargs: dict[str, Any],
     num_episodes: int = 3,
 ) -> dict:
@@ -51,17 +53,17 @@ def evaluate(
     episode_steps: list[int] = []
 
     for _ in range(num_episodes):
-        agent.preprocessor.reset()
+        preprocessor.reset()
         payload = eval_env.reset(options={"mode": "eval"})
         total_reward = 0.0
         steps = 0
         done = False
         while not done:
-            map_img, vector, legal_action, reward = agent.preprocessor.feature_process(
-                payload, agent.preprocessor.curr_action
+            map_img, vector, legal_action, reward = preprocessor.feature_process(
+                payload, preprocessor.curr_action
             )
-            action, _, _ = agent.forward_features(map_img, vector, legal_action, deterministic=True)
-            payload = eval_env.step(action)
+            result = algorithm.act(map_img, vector, np.asarray(legal_action, dtype=np.float32), mode="exploit")
+            payload = eval_env.step(result.action)
             total_reward += reward
             steps += 1
             done = payload["terminated"] or payload["truncated"]
@@ -75,7 +77,8 @@ def evaluate(
 
 
 def evaluate_with_recording(
-    agent: Agent,
+    algorithm: Algorithm,
+    preprocessor: Preprocessor,
     env_kwargs: dict[str, Any],
     eval_dir: Path,
     num_episodes: int = 10,
@@ -88,7 +91,7 @@ def evaluate_with_recording(
     episode_charges: list[int] = []
 
     for ep in range(num_episodes):
-        agent.preprocessor.reset()
+        preprocessor.reset()
         recorder = TrajectoryRecorder()
         eval_env = create_env(
             env_kwargs,
@@ -101,11 +104,11 @@ def evaluate_with_recording(
         steps = 0
         done = False
         while not done:
-            map_img, vector, legal_action, reward = agent.preprocessor.feature_process(
-                payload, agent.preprocessor.curr_action
+            map_img, vector, legal_action, reward = preprocessor.feature_process(
+                payload, preprocessor.curr_action
             )
-            action, _, _ = agent.forward_features(map_img, vector, legal_action, deterministic=True)
-            payload = eval_env.step(action)
+            result = algorithm.act(map_img, vector, np.asarray(legal_action, dtype=np.float32), mode="exploit")
+            payload = eval_env.step(result.action)
             total_reward += reward
             steps += 1
             done = payload["terminated"] or payload["truncated"]
@@ -132,7 +135,8 @@ def evaluate_with_recording(
 
 
 def evaluate_multi_map_with_recording(
-    agent: Agent,
+    algorithm: Algorithm,
+    preprocessor: Preprocessor,
     map_configs: list[dict[str, Any]],
     map_names: list[str],
     eval_dir: Path,
@@ -150,7 +154,7 @@ def evaluate_multi_map_with_recording(
         result = MapEvalResult(map_name=map_name)
 
         for ep in range(num_episodes):
-            agent.preprocessor.reset()
+            preprocessor.reset()
             recorder = TrajectoryRecorder()
             eval_env = create_env(
                 map_config,
@@ -163,11 +167,11 @@ def evaluate_multi_map_with_recording(
             steps = 0
             done = False
             while not done:
-                map_img, vector, legal_action, reward = agent.preprocessor.feature_process(
-                    payload, agent.preprocessor.curr_action
+                map_img, vector, legal_action, reward = preprocessor.feature_process(
+                    payload, preprocessor.curr_action
                 )
-                action, _, _ = agent.forward_features(map_img, vector, legal_action, deterministic=True)
-                payload = eval_env.step(action)
+                result = algorithm.act(map_img, vector, np.asarray(legal_action, dtype=np.float32), mode="exploit")
+                payload = eval_env.step(result.action)
                 total_reward += reward
                 steps += 1
                 done = payload["terminated"] or payload["truncated"]

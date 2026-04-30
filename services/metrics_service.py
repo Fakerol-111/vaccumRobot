@@ -125,17 +125,12 @@ class MetricsLogger:
 
     # ---------- periodic log ----------
 
-    def print_summary(self, step: int, fps: float | None = None) -> None:
-        u = self._update_stats()
-
+    def print_summary(self, step: int, fps: float | None = None, algo_summary: str = "") -> None:
         parts = [f"step={step}"]
         if fps is not None:
             parts.append(f"fps={fps:.0f}")
-        parts.append(
-            f"policy_loss={u['policy_loss']['mean']:.4f} "
-            f"value_loss={u['value_loss']['mean']:.4f} "
-            f"entropy={u['entropy']['mean']:.4f}"
-        )
+        if algo_summary:
+            parts.append(algo_summary.strip())
         parts.append(
             f"ema_cleaned={self._ema_cleaned:.1f}  "
             f"episodes={self.episode_count}"
@@ -146,9 +141,6 @@ class MetricsLogger:
             self._collector.add_event("summary", {
                 "step": step,
                 "fps": fps,
-                "policy_loss": u["policy_loss"]["mean"],
-                "value_loss": u["value_loss"]["mean"],
-                "entropy": u["entropy"]["mean"],
                 "ema_cleaned": self._ema_cleaned,
                 "episodes": self.episode_count,
             })

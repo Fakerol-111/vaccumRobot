@@ -16,6 +16,7 @@ artifacts/
 # Editor auto-save
 .editor_autosave.npy
 configs/.editor_autosave.npy
+.claude/
 
 # IDE / OS
 .vscode/

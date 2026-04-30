@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any
 from urllib.parse import urlparse, parse_qs
+
+logger = logging.getLogger(__name__)
 
 
 class MetricsCollector:
@@ -63,11 +66,15 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#0f1923;colo
 .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;animation:pulse 1.5s infinite}
 .status-dot.connected{background:#2ecc71}
 .status-dot.disconnected{background:#e74c3c}
+.algo-badge{display:inline-block;padding:2px 10px;border-radius:4px;font-weight:bold;font-size:12px;margin-left:8px}
+.algo-badge.ppo{background:#2a7de1;color:#fff}
+.algo-badge.grpo{background:#8e44ad;color:#fff}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
-.content{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:16px;padding:16px;max-height:calc(100vh - 60px)}
+.content{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px}
 .chart-box{background:#1a2736;border-radius:8px;padding:12px;border:1px solid #243447}
 .chart-box h3{font-size:14px;color:#7f9bb5;margin-bottom:8px}
 .chart-box canvas{max-height:280px}
+.hidden{display:none!important}
 .log-panel{grid-column:1/-1;background:#1a2736;border-radius:8px;padding:12px;border:1px solid #243447;overflow:hidden;display:flex;flex-direction:column}
 .log-panel h3{font-size:14px;color:#7f9bb5;margin-bottom:8px}
 .log-container{flex:1;overflow-y:auto;font-family:'Cascadia Code','Fira Code','Consolas',monospace;font-size:12px;line-height:1.6;max-height:200px;background:#0d1520;border-radius:4px;padding:8px}
@@ -82,7 +89,7 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#0f1923;colo
 </head>
 <body>
 <div class="header">
-<h1>Vacuum Robot 训练监控</h1>
+<h1>Vacuum Robot 训练监控<span class="algo-badge ppo" id="algo-badge">PPO</span></h1>
 <div class="info" id="header-info">
 <span>Run: <strong id="h-run">-</strong></span>
 <span>Seed: <strong id="h-seed">-</strong></span>
@@ -93,12 +100,16 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#0f1923;colo
 <span><span class="status-dot connected" id="status-dot"></span><span id="status-text">已连接</span></span>
 </div>
 </div>
-<div class="content">
-<div class="chart-box"><h3>Policy Loss</h3><canvas id="chart-policy-loss"></canvas></div>
-<div class="chart-box"><h3>Value Loss</h3><canvas id="chart-value-loss"></canvas></div>
-<div class="chart-box"><h3>Entropy</h3><canvas id="chart-entropy"></canvas></div>
-<div class="chart-box"><h3>Total Loss (Policy + Value)</h3><canvas id="chart-total-loss"></canvas></div>
-<div class="chart-box"><h3>Episode Reward & EMA Cleaned</h3><canvas id="chart-reward"></canvas></div>
+<div class="content" id="chart-grid">
+<div class="chart-box ppo-chart"><h3>Policy Loss</h3><canvas id="chart-policy-loss"></canvas></div>
+<div class="chart-box ppo-chart"><h3>Value Loss</h3><canvas id="chart-value-loss"></canvas></div>
+<div class="chart-box ppo-chart"><h3>Entropy</h3><canvas id="chart-entropy"></canvas></div>
+<div class="chart-box ppo-chart"><h3>Total Loss (Policy + Value)</h3><canvas id="chart-total-loss"></canvas></div>
+<div class="chart-box grpo-chart hidden"><h3>Group Mean Score</h3><canvas id="chart-mean-score"></canvas></div>
+<div class="chart-box grpo-chart hidden"><h3>Group Std Score</h3><canvas id="chart-std-score"></canvas></div>
+<div class="chart-box grpo-chart hidden"><h3>KL Divergence</h3><canvas id="chart-kl"></canvas></div>
+<div class="chart-box grpo-chart hidden"><h3>Total Loss</h3><canvas id="chart-total-loss-grpo"></canvas></div>
+<div class="chart-box"><h3>Episode Reward &amp; EMA Cleaned</h3><canvas id="chart-reward"></canvas></div>
 <div class="chart-box"><h3>Episode 指标 (Cleaned / Steps)</h3><canvas id="chart-episode"></canvas></div>
 <div class="chart-box"><h3>Update Mean Reward</h3><canvas id="chart-update-reward"></canvas></div>
 <div class="chart-box"></div>
@@ -118,18 +129,37 @@ const COLORS = {
     ema_cleaned: '#5dade2',
     cleaned: '#a569bd',
     steps: '#48c9b0',
-    update_reward: '#f5b041'
+    update_reward: '#f5b041',
+    mean_score: '#1abc9c',
+    std_score: '#e67e22',
+    kl: '#9b59b6',
+    grpo_total_loss: '#e74c3c',
+    policy_loss_grpo: '#e74c3c'
 };
 
 const Y_PRECISION = {
     'Policy Loss': 4, 'Value Loss': 4, 'Entropy': 4, 'Total Loss': 4,
     'Episode Reward': 2, 'EMA Cleaned': 1,
     'Cleaned': 0, 'Steps': 0,
-    'Mean Reward': 4
+    'Mean Reward': 4,
+    'Mean Score': 4, 'Std Score': 4, 'KL Divergence': 6
 };
 
+let currentAlgo = 'ppo';
+
+function switchAlgo(name) {
+    currentAlgo = name;
+    document.querySelectorAll('.ppo-chart').forEach(el => el.classList.toggle('hidden', name !== 'ppo'));
+    document.querySelectorAll('.grpo-chart').forEach(el => el.classList.toggle('hidden', name !== 'grpo'));
+    const badge = document.getElementById('algo-badge');
+    badge.textContent = name.toUpperCase();
+    badge.className = 'algo-badge ' + name;
+}
+
 function createChart(canvasId, title) {
-    const ctx = document.getElementById(canvasId).getContext('2d');
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return null;
+    const ctx = canvas.getContext('2d');
     return new Chart(ctx, {
         type: 'line',
         data: {datasets: []},
@@ -176,6 +206,7 @@ function createChart(canvasId, title) {
 }
 
 function addDataset(chart, label, color) {
+    if (!chart) return null;
     const ds = {
         label, borderColor: color, backgroundColor: color + '20',
         data: [], pointRadius: 0, pointHitRadius: 10, pointHoverRadius: 5,
@@ -199,6 +230,19 @@ const entropyDs = addDataset(entropyChart, 'Entropy', COLORS.entropy);
 const totalLossChart = createChart('chart-total-loss');
 const totalLossDs = addDataset(totalLossChart, 'Total Loss', COLORS.total_loss);
 
+const meanScoreChart = createChart('chart-mean-score');
+const meanScoreDs = addDataset(meanScoreChart, 'Mean Score', COLORS.mean_score);
+
+const stdScoreChart = createChart('chart-std-score');
+const stdScoreDs = addDataset(stdScoreChart, 'Std Score', COLORS.std_score);
+
+const klChart = createChart('chart-kl');
+const klDs = addDataset(klChart, 'KL Divergence', COLORS.kl);
+
+const grpoTotalLossChart = createChart('chart-total-loss-grpo');
+const grpoTotalLossDs = addDataset(grpoTotalLossChart, 'Total Loss', COLORS.grpo_total_loss);
+const grpoPolicyLossDs = addDataset(grpoTotalLossChart, 'Policy Loss', COLORS.policy_loss_grpo);
+
 const rewardChart = createChart('chart-reward');
 const rewardDs = addDataset(rewardChart, 'Episode Reward', COLORS.reward);
 const emaDs = addDataset(rewardChart, 'EMA Cleaned', COLORS.ema_cleaned);
@@ -211,8 +255,10 @@ const updateRewardChart = createChart('chart-update-reward');
 const updateRewardDs = addDataset(updateRewardChart, 'Mean Reward', COLORS.update_reward);
 
 let lossCounter = 0, rewardCounter = 0, episodeCounter = 0, updateRewardCounter = 0;
+let grpoCounter = 0;
 
 function addPoint(ds, counterRef, x, y) {
+    if (!ds) return;
     ds.data.push({x, y});
     if (ds.data.length > MAX_POINTS) ds.data.shift();
 }
@@ -264,27 +310,34 @@ async function poll() {
                 addPoint(totalLossDs, null, idx, d.policy_loss + d.value_loss);
                 addPoint(updateRewardDs, null, idx, d.reward);
                 addLog('update', ts, 'update=' + idx + ' policy_loss=' + d.policy_loss.toFixed(4) + ' value_loss=' + d.value_loss.toFixed(4) + ' entropy=' + d.entropy.toFixed(4) + ' total_loss=' + (d.policy_loss + d.value_loss).toFixed(4) + ' reward=' + d.reward.toFixed(4));
+            } else if (evt.type === 'group_update') {
+                grpoCounter++;
+                const idx = grpoCounter;
+                addPoint(meanScoreDs, null, idx, d.mean_score);
+                addPoint(stdScoreDs, null, idx, d.std_score);
+                addPoint(klDs, null, idx, d.kl);
+                addPoint(grpoTotalLossDs, null, idx, d.total_loss);
+                addPoint(grpoPolicyLossDs, null, idx, d.policy_loss);
+                addPoint(updateRewardDs, null, idx, d.mean_reward);
+                addLog('update', ts, 'group_update=' + idx + ' total_loss=' + d.total_loss.toFixed(4) + ' policy_loss=' + d.policy_loss.toFixed(4) + ' mean_score=' + d.mean_score.toFixed(4) + ' std_score=' + d.std_score.toFixed(4) + ' kl=' + d.kl.toFixed(6) + ' entropy=' + (d.entropy||0).toFixed(4));
             } else if (evt.type === 'summary') {
                 document.getElementById('h-step').textContent = d.step;
                 if (d.fps) document.getElementById('h-fps').textContent = d.fps.toFixed(0);
-                addLog('info', ts, 'Step=' + d.step + ' FPS=' + (d.fps||0).toFixed(0) + ' PolicyLoss=' + d.policy_loss.toFixed(4) + ' ValueLoss=' + d.value_loss.toFixed(4) + ' Entropy=' + d.entropy.toFixed(4) + ' ema_cleaned=' + d.ema_cleaned.toFixed(1));
+                addLog('info', ts, 'Step=' + d.step + ' FPS=' + (d.fps||0).toFixed(0) + ' ema_cleaned=' + d.ema_cleaned.toFixed(1) + ' episodes=' + d.episodes);
             } else if (evt.type === 'stage') {
                 document.getElementById('h-stage').textContent = d.stage_name;
                 addLog('stage', ts, '>>> 进入阶段: ' + d.stage_name + ' at step ' + d.step);
             } else if (evt.type === 'info') {
                 if (d.run_id) document.getElementById('h-run').textContent = d.run_id;
                 if (d.seed != null) document.getElementById('h-seed').textContent = d.seed;
+                if (d.algo) switchAlgo(d.algo);
                 addLog('info', ts, d.message || '');
             }
         }
 
-        policyLossChart.update();
-        valueLossChart.update();
-        entropyChart.update();
-        totalLossChart.update();
-        rewardChart.update();
-        episodeChart.update();
-        updateRewardChart.update();
+        [policyLossChart, valueLossChart, entropyChart, totalLossChart,
+         meanScoreChart, stdScoreChart, klChart, grpoTotalLossChart,
+         rewardChart, episodeChart, updateRewardChart].forEach(function(ch) { if (ch) ch.update(); });
 
         document.getElementById('status-dot').className = 'status-dot connected';
         document.getElementById('status-text').textContent = '已连接';
@@ -363,8 +416,8 @@ class DashboardServer:
         self._server = HTTPServer((self.host, self.port), DashboardHandler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
-        print(f"[Dashboard] Server started at http://{self.host}:{self.port}", flush=True)
-        print(f"[Dashboard] 打开浏览器访问 http://localhost:{self.port}", flush=True)
+        logger.info("Dashboard Server started at http://%s:%s", self.host, self.port)
+        logger.info("打开浏览器访问 http://localhost:%s", self.port)
 
     def stop(self) -> None:
         if self._server:
@@ -373,7 +426,7 @@ class DashboardServer:
         if self._thread:
             self._thread.join(timeout=2)
             self._thread = None
-        print("[Dashboard] Server stopped", flush=True)
+        logger.info("Dashboard Server stopped")
 
 
 def create_dashboard(dashboard_config: dict) -> tuple[MetricsCollector | None, DashboardServer | None]:

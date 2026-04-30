@@ -25,7 +25,7 @@ from core.types import (
 class TestTrainRequestAssembly(unittest.TestCase):
     def test_minimal_train_request(self):
         req = TrainRequest(
-            ppo_config=SimpleNamespace(learning_rate=0.001),
+            algo_config=SimpleNamespace(learning_rate=0.001),
             env_config={"default_npc_count": 1, "map_strategy": "round_robin"},
             curriculum={"enabled": False, "stages": []},
             training_config={"artifacts_dir": "artifacts"},
@@ -43,7 +43,7 @@ class TestTrainRequestAssembly(unittest.TestCase):
 
     def test_train_request_with_optional_fields(self):
         req = TrainRequest(
-            ppo_config=SimpleNamespace(learning_rate=0.001),
+            algo_config=SimpleNamespace(learning_rate=0.001),
             env_config={},
             curriculum={"enabled": True, "stages": []},
             training_config={},
@@ -92,7 +92,7 @@ class TestEvalRequestAssembly(unittest.TestCase):
             step=None,
             gif_fps=10,
             output_dir=None,
-            ppo_config=SimpleNamespace(learning_rate=0.001),
+            algo_config=SimpleNamespace(learning_rate=0.001),
             env_config={"default_npc_count": 1},
             artifacts_root=Path("/tmp/artifacts"),
         )
@@ -111,7 +111,7 @@ class TestEvalRequestAssembly(unittest.TestCase):
             step=5000,
             gif_fps=15,
             output_dir=Path("/tmp/eval_output"),
-            ppo_config=SimpleNamespace(),
+            algo_config=SimpleNamespace(),
             env_config={},
             artifacts_root=Path("/tmp/artifacts"),
         )
