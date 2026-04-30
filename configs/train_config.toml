@@ -24,7 +24,7 @@ num_actions = 8
 seed = 42
 
 [env]
-default_map_list = [1, 2, 3, 4]
+default_map_list = [1, 2, 3, 4, 5, 6, 7, 8]
 default_npc_count = 1
 default_station_count = 4
 map_strategy = "round_robin"
@@ -76,11 +76,12 @@ max_npcs = 5
 local_view_size = 21
 num_actions = 8
 batch_size = 256
-branch_window = 10    # 每条分支 rollout 步数
-branch_interval = 1   # 主轨迹中每隔多少步做一次组更新
+branch_window = 100   # 每条分支 rollout 步数
+branch_interval = 10   # 主轨迹中每隔多少步做一次组更新
 num_candidates = 4     # 候选动作数（K）
 kl_coef = 0.1          # KL 散度惩罚系数
 action_prob_threshold = 0.01  # 候选动作最低概率阈值
+ref_sync = "episode"        # reference model 同步策略: "episode" | false
 
 [dashboard]
 enabled = true

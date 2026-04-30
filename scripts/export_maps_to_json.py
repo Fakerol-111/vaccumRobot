@@ -22,7 +22,7 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-MAP_IDS = [1, 2, 3, 4]
+MAP_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 OUTPUT_DIR = PROJECT_ROOT / "configs" / "maps"
 SCHEMA_VERSION = 1
 
