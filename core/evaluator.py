@@ -62,8 +62,8 @@ def evaluate(
             map_img, vector, legal_action, reward = preprocessor.feature_process(
                 payload, preprocessor.curr_action
             )
-            result = algorithm.act(map_img, vector, np.asarray(legal_action, dtype=np.float32), mode="exploit")
-            payload = eval_env.step(result.action)
+            act_result = algorithm.act(map_img, vector, np.asarray(legal_action, dtype=np.float32), mode="exploit")
+            payload = eval_env.step(act_result.action)
             total_reward += reward
             steps += 1
             done = payload["terminated"] or payload["truncated"]
@@ -107,8 +107,8 @@ def evaluate_with_recording(
             map_img, vector, legal_action, reward = preprocessor.feature_process(
                 payload, preprocessor.curr_action
             )
-            result = algorithm.act(map_img, vector, np.asarray(legal_action, dtype=np.float32), mode="exploit")
-            payload = eval_env.step(result.action)
+            act_result = algorithm.act(map_img, vector, np.asarray(legal_action, dtype=np.float32), mode="exploit")
+            payload = eval_env.step(act_result.action)
             total_reward += reward
             steps += 1
             done = payload["terminated"] or payload["truncated"]
@@ -170,8 +170,8 @@ def evaluate_multi_map_with_recording(
                 map_img, vector, legal_action, reward = preprocessor.feature_process(
                     payload, preprocessor.curr_action
                 )
-                result = algorithm.act(map_img, vector, np.asarray(legal_action, dtype=np.float32), mode="exploit")
-                payload = eval_env.step(result.action)
+                act_result = algorithm.act(map_img, vector, np.asarray(legal_action, dtype=np.float32), mode="exploit")
+                payload = eval_env.step(act_result.action)
                 total_reward += reward
                 steps += 1
                 done = payload["terminated"] or payload["truncated"]

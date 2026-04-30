@@ -6,7 +6,7 @@
 maps = [1, 2, 3, 4]
 
 # 每张地图测评的 episode 数量
-episodes = 5
+episodes = 1
 
 # 测评时 NPC 数量（若为空则使用 train_config.toml 中的 default_npc_count）
 npc_count = 3
