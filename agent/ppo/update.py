@@ -1,3 +1,5 @@
+"""PPO update core: clipped surrogate objective, value clipping, entropy bonus."""
+
 from __future__ import annotations
 
 import torch
@@ -5,8 +7,8 @@ import torch.nn as nn
 from torch.distributions import Categorical
 from torch.optim import Optimizer
 
-from agent.definition import RolloutBatch
-from agent.model import ActorCritic
+from agent.nn.actor_critic import ActorCritic
+from agent.ppo.batch import RolloutBatch
 
 
 class PPO:

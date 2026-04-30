@@ -11,25 +11,16 @@ from typing import Any, TYPE_CHECKING
 import numpy as np
 import torch
 
-from agent.agent import Agent
-from agent.checkpoint import build_config_snapshot, restore_rng_state
-from agent.definition import RolloutBatch
+from agent.base import Algorithm
+from agent.common.checkpoint import build_config_snapshot, restore_rng_state
+from agent.preprocessor import Preprocessor
 from configs.map_loader import load_map_config
+from core.paths import get_checkpoints_root, get_checkpoint_path, get_run_info_path, get_run_dir, get_train_log_path
+from env.factory import create_env
 from services.metrics_service import MetricsLogger
 
 if TYPE_CHECKING:
     from services.dashboard_service import MetricsCollector
-
-
-def prepare_batches(segment: RolloutBatch, mini_batch_size: int) -> list[RolloutBatch]:
-    n = len(segment)
-    indices = np.random.permutation(n)
-    batches: list[RolloutBatch] = []
-    for start in range(0, n, mini_batch_size):
-        end = start + mini_batch_size
-        idx = indices[start:end]
-        batches.append(segment[idx])
-    return batches
 
 
 def _get_git_info() -> dict[str, Any]:
@@ -71,7 +62,9 @@ def _get_git_info() -> dict[str, Any]:
 class Trainer:
     def __init__(
         self,
-        ppo_config,
+        algorithm: Algorithm,
+        preprocessor: Preprocessor,
+        algo_config,
         default_npc_count: int,
         default_station_count: int,
         map_strategy: str,
@@ -86,7 +79,9 @@ class Trainer:
         config_path: Path | None = None,
         metrics_config: dict[str, Any] | None = None,
     ):
-        self.config = ppo_config
+        self.algorithm = algorithm
+        self.preprocessor = preprocessor
+        self.config = algo_config
         self.default_npc_count = default_npc_count
         self.default_station_count = default_station_count
         self.map_strategy = map_strategy
@@ -103,16 +98,15 @@ class Trainer:
         self._config_path = config_path
         self._metrics_config = metrics_config or {"max_updates": 500, "max_episodes": 500}
 
-        self.map_dir = self.artifacts_dir / "multi_map"
-        self.map_dir.mkdir(parents=True, exist_ok=True)
-        self.agent = Agent(ppo_config, self.device)
-
         self._env: Any = None
+        self._current_env_config: dict[str, Any] | None = None
         self._current_map_idx = 0
         self._current_map_id = 0
         self._map_name = ""
         self._current_stage_name = ""
         self._env_config_cache: dict[tuple, dict] = {}
+        self._last_save_time = 0.0
+        self._last_done = True
 
     # ---------- public properties ----------
 
@@ -131,10 +125,10 @@ class Trainer:
             self._resume_training(self._resume_from)
             return
 
-        self.checkpoint_dir = self.map_dir / "checkpoints" / self.run_id
+        self.checkpoint_dir = get_run_dir(get_checkpoints_root(self.artifacts_dir), self.run_id)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.logger = MetricsLogger(
-            log_file=self.checkpoint_dir / "train.log",
+            log_file=get_train_log_path(self.checkpoint_dir),
             collector=self._collector,
             max_updates=self._metrics_config["max_updates"],
             max_episodes=self._metrics_config["max_episodes"],
@@ -146,22 +140,21 @@ class Trainer:
             self._print_config_summary(self.run_id)
 
             self._env = self._create_initial_env()
-            self._reset_collectors()
             self._episode_steps = 0
             self._episode_reward = 0.0
             global_step, start_time = 0, time.time()
             payload = self._env.reset(seed=self._base_seed + self._episode_counter, options={"mode": "train"})
-            self.agent.preprocessor.reset()
+            self.preprocessor.reset()
 
             while global_step < self.config.total_timesteps:
                 self._log_stage_transition(global_step)
                 payload, global_step = self._collect_batch(payload, global_step)
 
-                if self._buffer_is_full():
-                    rollout = self._build_rollout_batch(payload)
-                    loss_info = self._train_step(rollout)
-                    self._clear_collectors()
-                    self._record_update(rollout, loss_info)
+                bootstrap_state = None
+                if not self._last_done:
+                    m, v, l, _ = self.preprocessor.feature_process(payload, self.preprocessor.curr_action)
+                    bootstrap_state = (m, v, l)
+                if self.algorithm.maybe_update(bootstrap_state) is not None:
                     self._log_progress(global_step, start_time)
 
                 if self._should_checkpoint(global_step):
@@ -217,14 +210,18 @@ class Trainer:
 
     def _create_initial_env(self):
         config, map_id = self._pick_next_map(0)
+        self._current_env_config = dict(config)
         self._current_map_id = map_id
         self._map_name = f"map_{map_id}"
+        self.algorithm.set_env_config(self._current_env_config)
         return create_env(config, enable_recording=False, render_mode=None)
 
     def _create_next_env(self, global_step: int):
         config, map_id = self._pick_next_map(global_step)
+        self._current_env_config = dict(config)
         self._current_map_id = map_id
         self._map_name = f"map_{map_id}"
+        self.algorithm.set_env_config(self._current_env_config)
         return create_env(config, enable_recording=False, render_mode=None)
 
     def _write_run_meta(self, run_id: str) -> None:
@@ -232,23 +229,23 @@ class Trainer:
         meta = {
             "run_id": run_id,
             "seed": self._base_seed,
-            "ppo": {
+            "algo": {
                 "learning_rate": c.learning_rate,
                 "gamma": c.gamma,
-                "gae_lambda": c.gae_lambda,
-                "clip_epsilon": c.clip_epsilon,
-                "value_coef": c.value_coef,
-                "entropy_coef": c.entropy_coef,
                 "max_grad_norm": c.max_grad_norm,
-                "ppo_epochs": c.ppo_epochs,
-                "batch_size": c.batch_size,
-                "mini_batch_size": c.mini_batch_size,
                 "total_timesteps": c.total_timesteps,
                 "save_interval": c.save_interval,
                 "log_interval": c.log_interval,
                 "num_actions": c.num_actions,
                 "local_view_size": c.local_view_size,
                 "max_npcs": c.max_npcs,
+                "gae_lambda": getattr(c, "gae_lambda", None),
+                "clip_epsilon": getattr(c, "clip_epsilon", None),
+                "value_coef": getattr(c, "value_coef", None),
+                "entropy_coef": getattr(c, "entropy_coef", None),
+                "ppo_epochs": getattr(c, "ppo_epochs", None),
+                "batch_size": getattr(c, "batch_size", None),
+                "mini_batch_size": getattr(c, "mini_batch_size", None),
             },
             "env": {
                 "maps": self._default_map_list,
@@ -263,7 +260,7 @@ class Trainer:
             "device": str(self.device),
             "git": _get_git_info(),
         }
-        meta_path = self.checkpoint_dir / "run_info.json"
+        meta_path = get_run_info_path(self.checkpoint_dir)
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
 
@@ -280,6 +277,7 @@ class Trainer:
         c = self.config
         self.logger._emit("=" * 65)
         self.logger._emit(f"  Run: {run_id}")
+        self.logger._emit(f"  Algorithm: {type(self.algorithm).__name__.replace('Algorithm', '').upper()}")
         self.logger._emit("=" * 65)
         self.logger._emit("")
         self.logger._emit("--- Environment ---")
@@ -288,21 +286,28 @@ class Trainer:
         self.logger._emit(f"  NPC count:     {self.default_npc_count}")
         self.logger._emit(f"  Station count: {self.default_station_count}")
         self.logger._emit("")
-        self.logger._emit("--- PPO Hyperparameters ---")
+        self.logger._emit("--- Algorithm Hyperparameters ---")
         self.logger._emit(f"  Learning rate:  {c.learning_rate}")
         self.logger._emit(f"  Gamma:          {c.gamma}")
-        self.logger._emit(f"  GAE lambda:     {c.gae_lambda}")
-        self.logger._emit(f"  Clip epsilon:   {c.clip_epsilon}")
-        self.logger._emit(f"  Value coef:     {c.value_coef}")
-        self.logger._emit(f"  Entropy coef:   {c.entropy_coef}")
+        if hasattr(c, "gae_lambda"):
+            self.logger._emit(f"  GAE lambda:     {c.gae_lambda}")
+        if hasattr(c, "clip_epsilon"):
+            self.logger._emit(f"  Clip epsilon:   {c.clip_epsilon}")
+        if hasattr(c, "value_coef"):
+            self.logger._emit(f"  Value coef:     {c.value_coef}")
+        if hasattr(c, "entropy_coef"):
+            self.logger._emit(f"  Entropy coef:   {c.entropy_coef}")
         self.logger._emit(f"  Max grad norm:  {c.max_grad_norm}")
         self.logger._emit("")
         self.logger._emit("--- Training ---")
         self.logger._emit(f"  Seed:            {self._base_seed}")
         self.logger._emit(f"  Total timesteps: {c.total_timesteps}")
-        self.logger._emit(f"  Batch size:      {c.batch_size}")
-        self.logger._emit(f"  Mini batch:      {c.mini_batch_size}")
-        self.logger._emit(f"  PPO epochs:      {c.ppo_epochs}")
+        if hasattr(c, "batch_size"):
+            self.logger._emit(f"  Batch size:      {c.batch_size}")
+        if hasattr(c, "mini_batch_size"):
+            self.logger._emit(f"  Mini batch:      {c.mini_batch_size}")
+        if hasattr(c, "ppo_epochs"):
+            self.logger._emit(f"  PPO epochs:      {c.ppo_epochs}")
         self.logger._emit(f"  Save interval:   {c.save_interval}")
         self.logger._emit(f"  Log interval:    {c.log_interval}")
         self.logger._emit(f"  Device:          {self.device}")
@@ -312,41 +317,52 @@ class Trainer:
         self.logger._emit(f"  Actions:    {c.num_actions}")
         self.logger._emit(f"  Max NPCs:   {c.max_npcs}")
         self.logger._emit("")
-        self.logger._emit("--- Curriculum ---")
-        self.logger._emit(f"  Enabled: {self.curriculum_enabled}")
-        if self.curriculum_stages:
-            for i, s in enumerate(self.curriculum_stages):
-                self.logger._emit(
-                    f"  Stage {i+1} [{s['name']}]: maps={s['maps']} "
-                    f"npc={s['npc_count']} stations={s['station_count']} "
-                    f"until_step={s['total_steps']}"
-                )
-        self.logger._emit("")
+        if self.curriculum_enabled:
+            self.logger._emit("--- Curriculum ---")
+            self.logger._emit(f"  Enabled: {self.curriculum_enabled}")
+            if self.curriculum_stages:
+                for i, s in enumerate(self.curriculum_stages):
+                    self.logger._emit(
+                        f"  Stage {i+1} [{s['name']}]: maps={s['maps']} "
+                        f"npc={s['npc_count']} stations={s['station_count']} "
+                        f"until_step={s['total_steps']}"
+                    )
+            self.logger._emit("")
         self.logger._emit("=" * 65)
         self.logger._emit("")
 
         if self._collector is not None:
+            algo_name = type(self.algorithm).__name__.replace("Algorithm", "").lower()
             self._collector.set_run_info({
+                "algo": algo_name,
                 "run_id": run_id,
                 "seed": self._base_seed,
                 "total_timesteps": c.total_timesteps,
                 "map_strategy": self.map_strategy,
                 "curriculum_enabled": self.curriculum_enabled,
                 "maps": self._default_map_list,
-                "batch_size": c.batch_size,
+                "batch_size": getattr(c, "batch_size", None),
                 "lr": c.learning_rate,
             })
-            self._collector.add_event("info", {"run_id": run_id, "seed": self._base_seed, "message": f"Run started: {run_id}  seed={self._base_seed}"})
-            for s in [
+            self._collector.add_event("info", {"algo": algo_name, "run_id": run_id, "seed": self._base_seed, "message": f"Run started: {run_id}  seed={self._base_seed}"})
+            info_lines = [
                 f"Maps: {self._default_map_list}  strategy={self.map_strategy}",
                 f"NPC={self.default_npc_count}  Stations={self.default_station_count}",
-                f"gamma={c.gamma}  lambda={c.gae_lambda}  clip={c.clip_epsilon}",
-                f"value_coef={c.value_coef}  entropy_coef={c.entropy_coef}  max_grad_norm={c.max_grad_norm}",
-                f"batch={c.batch_size}  mini_batch={c.mini_batch_size}  epochs={c.ppo_epochs}",
+                f"gamma={c.gamma}" + (f"  lambda={c.gae_lambda}" if hasattr(c, "gae_lambda") else "")
+                              + (f"  clip={c.clip_epsilon}" if hasattr(c, "clip_epsilon") else ""),
+            ]
+            if hasattr(c, "value_coef"):
+                info_lines.append(f"value_coef={c.value_coef}  entropy_coef={c.entropy_coef}  max_grad_norm={c.max_grad_norm}")
+            else:
+                info_lines.append(f"max_grad_norm={c.max_grad_norm}")
+            if hasattr(c, "gae_lambda"):
+                info_lines.append(f"batch={c.batch_size}  mini_batch={c.mini_batch_size}  epochs={c.ppo_epochs}")
+            info_lines.extend([
                 f"total_steps={c.total_timesteps}  save_interval={c.save_interval}  log_interval={c.log_interval}",
                 f"lr={c.learning_rate}  device={self.device}",
                 f"Curriculum: {'enabled' if self.curriculum_enabled else 'disabled'}",
-            ]:
+            ])
+            for s in info_lines:
                 self._collector.add_event("info", {"message": s})
 
     def _log_stage_transition(self, global_step: int) -> None:
@@ -364,31 +380,13 @@ class Trainer:
 
     # ---------- private helpers ----------
 
-    def _reset_collectors(self) -> None:
-        self._map_imgs: list[np.ndarray] = []
-        self._vectors: list[np.ndarray] = []
-        self._legal_masks: list[np.ndarray] = []
-        self._actions: list[int] = []
-        self._log_probs_list: list[float] = []
-        self._values: list[float] = []
-        self._rewards: list[float] = []
-        self._dones: list[int] = []
-
-    def _clear_collectors(self) -> None:
-        self._map_imgs.clear()
-        self._vectors.clear()
-        self._legal_masks.clear()
-        self._actions.clear()
-        self._log_probs_list.clear()
-        self._values.clear()
-        self._rewards.clear()
-        self._dones.clear()
-
-    def _buffer_is_full(self) -> bool:
-        return len(self._rewards) == self.config.batch_size
-
     def _should_checkpoint(self, global_step: int) -> bool:
-        return global_step % self.config.save_interval == 0 and global_step > 0
+        if global_step <= 0:
+            return False
+        time_interval = self.config.save_time_interval
+        if time_interval > 0:
+            return time.time() - self._last_save_time >= time_interval
+        return global_step % self.config.save_interval == 0
 
     def _collect_batch(
         self, payload: dict, global_step: int,
@@ -396,21 +394,29 @@ class Trainer:
         remaining = self.config.batch_size
 
         while remaining > 0 and global_step < self.config.total_timesteps:
-            map_img, vector, legal_mask, reward = self.agent.preprocessor.feature_process(
-                payload, self.agent.preprocessor.curr_action
+            map_img, vector, legal_mask, reward = self.preprocessor.feature_process(
+                payload, self.preprocessor.curr_action
             )
-            action, log_prob, value = self.agent.forward_features(map_img, vector, legal_mask)
-            payload = self._env.step(action)
-            done = int(payload["terminated"] or payload["truncated"])
+            legal_mask = np.asarray(legal_mask, dtype=np.float32)
 
-            self._map_imgs.append(map_img)
-            self._vectors.append(vector)
-            self._legal_masks.append(np.array(legal_mask, dtype=np.float32))
-            self._actions.append(action)
-            self._log_probs_list.append(log_prob)
-            self._values.append(value)
-            self._rewards.append(reward)
-            self._dones.append(done)
+            # 为分支算法（如 GRPO）保存 env + preprocessor 快照
+            if hasattr(self.algorithm, "set_branch_state"):
+                self.algorithm.set_branch_state({
+                    "env": self._env.get_state(),
+                    "pp": self.preprocessor.get_state(),
+                })
+
+            result = self.algorithm.act(map_img, vector, legal_mask, mode="explore")
+            payload = self._env.step(result.action)
+            done = bool(payload["terminated"] or payload["truncated"])
+
+            self.algorithm.on_step(
+                map_img, vector, np.array(legal_mask, dtype=np.float32),
+                result.action, result.log_prob, result.value,
+                reward, done,
+            )
+
+            self._last_done = done
 
             self._episode_reward += reward
             self._episode_steps += 1
@@ -429,60 +435,34 @@ class Trainer:
                 self._env.close()
                 self._env = self._create_next_env(global_step)
                 payload = self._env.reset(seed=self._base_seed + self._episode_counter, options={"mode": "train"})
-                self.agent.preprocessor.reset()
+                self.preprocessor.reset()
 
         return payload, global_step
-
-    def _build_rollout_batch(self, payload: dict) -> RolloutBatch:
-        rewards_arr = np.array(self._rewards, dtype=np.float32)
-        values_arr = np.array(self._values, dtype=np.float32)
-        dones_arr = np.array(self._dones, dtype=np.int8)
-
-        bootstrap_value = 0.0
-        if not bool(dones_arr[-1]):
-            bootstrap_value = self.agent.get_bootstrap_value(payload)
-
-        advantages, returns_arr = self.agent.compute_gae(
-            rewards_arr, values_arr, dones_arr, bootstrap_value,
-        )
-
-        return RolloutBatch(
-            map_imgs=np.stack(self._map_imgs),
-            vectors=np.stack(self._vectors),
-            legal_masks=np.stack(self._legal_masks),
-            actions=np.array(self._actions, dtype=np.int64),
-            log_probs=np.array(self._log_probs_list, dtype=np.float32),
-            values=np.array(self._values, dtype=np.float32),
-            rewards=rewards_arr,
-            dones=dones_arr,
-            advantages=advantages,
-            returns=returns_arr,
-        )
-
-    def _train_step(self, rollout: RolloutBatch) -> dict[str, float]:
-        batches = prepare_batches(rollout, self.config.mini_batch_size)
-        return self.agent.learn(batches)
-
-    def _record_update(self, rollout: RolloutBatch, loss_info: dict[str, float]) -> None:
-        mean_reward = float(np.mean(rollout.rewards))
-        self.logger.log_update(
-            mean_reward,
-            loss_info["policy_loss"],
-            loss_info["value_loss"],
-            loss_info["entropy"],
-        )
 
     def _log_progress(self, global_step: int, start_time: float) -> None:
         if global_step % self.config.log_interval != 0:
             return
         elapsed = time.time() - start_time
         fps = global_step / max(elapsed, 1)
-        self.logger.print_summary(global_step, fps)
+        algo_line = ""
+        reporter = self.algorithm.metrics_reporter
+        if reporter is not None:
+            algo_line = "  " + reporter.update_summary()
+        self.logger.print_summary(global_step, fps, algo_summary=algo_line)
 
     def _save_checkpoint(self, global_step: int) -> None:
-        path = self.checkpoint_dir / f"checkpoint_{global_step}.pt"
-        config_snapshot = build_config_snapshot(self)
-        self.agent.save_checkpoint(
+        path = get_checkpoint_path(self.checkpoint_dir, global_step)
+        extra = {
+            "default_npc_count": self.default_npc_count,
+            "default_station_count": self.default_station_count,
+            "map_strategy": self.map_strategy,
+            "curriculum_enabled": self.curriculum_enabled,
+            "curriculum_stages": self.curriculum_stages,
+            "default_map_list": self._default_map_list,
+            "seed": self._base_seed,
+        }
+        config_snapshot = build_config_snapshot(self.config, extra)
+        self.algorithm.save_checkpoint(
             path=path,
             global_step=global_step,
             episode_counter=self._episode_counter,
@@ -491,14 +471,19 @@ class Trainer:
             current_stage_name=self._current_stage_name,
             config_snapshot=config_snapshot,
         )
+        self._last_save_time = time.time()
 
     def _final_summary(self, start_time: float, global_step: int) -> None:
         total_time = time.time() - start_time
         self.logger._emit(f"Total time: {total_time:.1f}s  Total steps: {global_step}")
         self.logger.print_training_summary()
+        reporter = self.algorithm.metrics_reporter
+        if reporter is not None:
+            for line in reporter.final_summary_lines():
+                self.logger._emit(f"  {line}")
 
     def _resume_training(self, checkpoint_path: Path) -> None:
-        ckpt = self.agent.load_checkpoint(checkpoint_path)
+        ckpt = self.algorithm.load_checkpoint(checkpoint_path)
         global_step = ckpt.global_step
         self._episode_counter = ckpt.episode_counter
         self._current_map_idx = ckpt.current_map_idx
@@ -507,10 +492,10 @@ class Trainer:
 
         restore_rng_state(ckpt.rng_state)
 
-        self.checkpoint_dir = self.map_dir / "checkpoints" / self.run_id
+        self.checkpoint_dir = get_run_dir(get_checkpoints_root(self.artifacts_dir), self.run_id)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.logger = MetricsLogger(
-            log_file=self.checkpoint_dir / "train.log",
+            log_file=get_train_log_path(self.checkpoint_dir),
             collector=self._collector,
             max_updates=self._metrics_config["max_updates"],
             max_episodes=self._metrics_config["max_episodes"],
@@ -522,22 +507,21 @@ class Trainer:
             self.logger._emit("=" * 65)
 
             self._env = self._create_next_env(global_step)
-            self._reset_collectors()
             self._episode_steps = 0
             self._episode_reward = 0.0
             start_time = time.time()
             payload = self._env.reset(seed=self._base_seed + self._episode_counter, options={"mode": "train"})
-            self.agent.preprocessor.reset()
+            self.preprocessor.reset()
 
             while global_step < self.config.total_timesteps:
                 self._log_stage_transition(global_step)
                 payload, global_step = self._collect_batch(payload, global_step)
 
-                if self._buffer_is_full():
-                    rollout = self._build_rollout_batch(payload)
-                    loss_info = self._train_step(rollout)
-                    self._clear_collectors()
-                    self._record_update(rollout, loss_info)
+                bootstrap_state = None
+                if not self._last_done:
+                    m, v, l, _ = self.preprocessor.feature_process(payload, self.preprocessor.curr_action)
+                    bootstrap_state = (m, v, l)
+                if self.algorithm.maybe_update(bootstrap_state) is not None:
                     self._log_progress(global_step, start_time)
 
                 if self._should_checkpoint(global_step):
@@ -550,6 +534,3 @@ class Trainer:
             if self._env is not None:
                 self._env.close()
             self.logger.close()
-
-
-from env.factory import create_env

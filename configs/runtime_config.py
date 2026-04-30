@@ -46,6 +46,7 @@ def _parse_ppo(raw: dict[str, Any]) -> SimpleNamespace:
         mini_batch_size=int(ppo.get("mini_batch_size", 128)),
         total_timesteps=int(ppo.get("total_timesteps", 10_000)),
         save_interval=int(ppo.get("save_interval", 5_000)),
+        save_time_interval=float(ppo.get("save_time_interval", 0)),
         log_interval=int(ppo.get("log_interval", 500)),
         max_npcs=int(ppo.get("max_npcs", 5)),
         local_view_size=int(ppo.get("local_view_size", 21)),
@@ -112,6 +113,40 @@ def _parse_metrics(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _parse_algorithm(raw: dict[str, Any]) -> dict[str, Any]:
+    algo = raw.get("algorithm", {})
+    return {
+        "name": algo.get("name", "ppo"),
+    }
+
+
+def _parse_grpo(raw: dict[str, Any]) -> SimpleNamespace:
+    grpo = raw.get("grpo", {})
+    default_window = max(8, int(2.0 / (1.0 - float(raw.get("ppo", {}).get("gamma", 0.99))) + 0.5))
+    return SimpleNamespace(
+        learning_rate=float(grpo.get("learning_rate", 3e-4)),
+        gamma=float(grpo.get("gamma", raw.get("ppo", {}).get("gamma", 0.99))),
+        clip_epsilon=float(grpo.get("clip_epsilon", 0.2)),
+        value_coef=float(grpo.get("value_coef", 0.5)),
+        entropy_coef=float(grpo.get("entropy_coef", 0.01)),
+        max_grad_norm=float(grpo.get("max_grad_norm", 0.5)),
+        total_timesteps=int(grpo.get("total_timesteps", 10_000)),
+        save_interval=int(grpo.get("save_interval", 5_000)),
+        save_time_interval=float(grpo.get("save_time_interval", 0)),
+        log_interval=int(grpo.get("log_interval", 500)),
+        max_npcs=int(grpo.get("max_npcs", 5)),
+        local_view_size=int(grpo.get("local_view_size", 21)),
+        num_actions=int(grpo.get("num_actions", 8)),
+        batch_size=int(grpo.get("batch_size", 256)),
+        # GRPO-specific
+        branch_window=int(grpo.get("branch_window", default_window)),
+        branch_interval=int(grpo.get("branch_interval", 30)),
+        num_candidates=int(grpo.get("num_candidates", 4)),
+        kl_coef=float(grpo.get("kl_coef", 0.1)),
+        action_prob_threshold=float(grpo.get("action_prob_threshold", 0.01)),
+    )
+
+
 # ── 公开接口 ───────────────────────────────────────────
 
 def load_train_config_bundle(path: Path | None = None) -> SimpleNamespace:
@@ -119,7 +154,9 @@ def load_train_config_bundle(path: Path | None = None) -> SimpleNamespace:
 
     Returns:
         SimpleNamespace 包含以下属性:
+            algo        – dict {name} 算法名称
             ppo         – SimpleNamespace (PPO 超参)
+            grpo        – SimpleNamespace (GRPO 超参)
             env         – dict (环境默认参数)
             curriculum  – dict {enabled, stages}
             training    – dict (训练产物路径等)
@@ -132,7 +169,9 @@ def load_train_config_bundle(path: Path | None = None) -> SimpleNamespace:
     raw = _load_toml(resolved)
 
     return SimpleNamespace(
+        algo=_parse_algorithm(raw),
         ppo=_parse_ppo(raw),
+        grpo=_parse_grpo(raw),
         env=_parse_env(raw),
         curriculum=_parse_curriculum(raw),
         training=_parse_training(raw),

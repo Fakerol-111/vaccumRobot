@@ -6,8 +6,11 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -45,17 +48,20 @@ def main(config_path: Path | None = None):
         step=test_cfg["step"],
         gif_fps=test_cfg["gif_fps"],
         output_dir=Path(test_cfg["output_dir"]) if test_cfg["output_dir"] else None,
-        ppo_config=train_cfg.ppo,
+        algo_config=train_cfg.ppo,
         env_config=train_cfg.env,
-        artifacts_root=PROJECT_ROOT / "artifacts",
+        artifacts_root=PROJECT_ROOT / train_cfg.training["artifacts_dir"],
     )
 
     result = run_evaluation(req)
     if not result.success:
-        print(f"[eval] Evaluation failed: {result.error}")
+        logger.error("Evaluation failed: %s", result.error)
         sys.exit(1)
 
 
 if __name__ == "__main__":
+    from core import setup_logging
+    setup_logging()
+
     config_path = parse_args()
     main(config_path)

@@ -9,8 +9,8 @@ from core.paths import (
     get_artifacts_root,
     get_checkpoints_root,
     get_run_dir,
-    get_checkpoint_dir,
     get_checkpoint_path,
+    get_run_info_path,
     get_train_log_path,
     get_eval_dir,
     find_run_dir,
@@ -37,14 +37,13 @@ class TestPathGetters(unittest.TestCase):
         result = get_run_dir(self.checkpoints_root, "run_001")
         self.assertEqual(result, self.checkpoints_root / "run_001")
 
-    def test_get_checkpoint_dir(self):
-        result = get_checkpoint_dir(self.run_dir)
-        self.assertEqual(result, self.run_dir / "checkpoints")
-
     def test_get_checkpoint_path(self):
-        ckpt_dir = self.run_dir / "checkpoints"
-        path = get_checkpoint_path(ckpt_dir, 5000)
-        self.assertEqual(path, ckpt_dir / "checkpoint_5000.pt")
+        path = get_checkpoint_path(self.run_dir, 5000)
+        self.assertEqual(path, self.run_dir / "checkpoint_5000.pt")
+
+    def test_get_run_info_path(self):
+        path = get_run_info_path(self.run_dir)
+        self.assertEqual(path, self.run_dir / "run_info.json")
 
     def test_get_train_log_path(self):
         path = get_train_log_path(self.run_dir)

@@ -40,7 +40,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-CMAP = mcolors.ListedColormap(["#1e1e1e", "#ffffff", "#cdaa3c", "#dc3c3c", "#3c8cf0", "#50dc78"])
+CMAP = mcolors.ListedColormap(["#475569", "#E5E7EB", "#F59E0B", "#DC2626", "#7C3AED", "#2563EB"])
 
 BLOCKED, CLEAN, DIRTY = 0, 1, 2
 
@@ -72,9 +72,11 @@ class MapEditor:
         self._MAX_UNDO = 50
         self._op_count = 0
         self._AUTO_CHECKPOINT = 10
-        self._autosave_path = PROJECT_ROOT / "config" / ".editor_autosave.npy"
+        self._autosave_path = PROJECT_ROOT / "configs" / ".editor_autosave.npy"
 
         self._fig, self._ax = plt.subplots(figsize=(9, 9))
+        self._fig.patch.set_facecolor("#F1F5F9")
+        self._ax.set_facecolor("#E2E8F0")
         self._fig.subplots_adjust(left=0.01, right=0.99, bottom=0.01, top=0.94)
         self._img = self._ax.imshow(
             self.grid, cmap=CMAP, vmin=0, vmax=5, origin="upper", interpolation="nearest",
@@ -82,7 +84,7 @@ class MapEditor:
         self._overlay: list[Any] = []
 
         self._highlight = plt.Rectangle(
-            (0, 0), 1, 1, fill=True, facecolor="#ffff00", alpha=0.25, edgecolor="#ffff00",
+            (0, 0), 1, 1, fill=True, facecolor="#0EA5E9", alpha=0.30, edgecolor="#0EA5E9",
             linewidth=2.5, zorder=20, visible=False,
         )
         self._ax.add_patch(self._highlight)
@@ -110,13 +112,13 @@ class MapEditor:
         self._ax.set_xticks(np.arange(0, w, max(1, w // 16)))
         self._ax.set_yticks(np.arange(0, h, max(1, h // 16)))
         self._ax.tick_params(which="both", labelsize=7)
-        self._ax.grid(True, which="minor", color="#cccccc", linewidth=0.3, alpha=0.85)
-        self._ax.grid(True, which="major", color="#eeeeee", linewidth=0.8, alpha=0.95)
+        self._ax.grid(True, which="minor", color="#CBD5E1", linewidth=0.3, alpha=0.85)
+        self._ax.grid(True, which="major", color="#CBD5E1", linewidth=0.8, alpha=0.95)
 
     def _toggle_grid(self) -> None:
         self._show_grid = not self._show_grid
-        self._ax.grid(self._show_grid, which="minor", color="#cccccc", linewidth=0.3, alpha=0.85)
-        self._ax.grid(self._show_grid, which="major", color="#eeeeee", linewidth=0.8, alpha=0.95)
+        self._ax.grid(self._show_grid, which="minor", color="#CBD5E1", linewidth=0.3, alpha=0.85)
+        self._ax.grid(self._show_grid, which="major", color="#CBD5E1", linewidth=0.8, alpha=0.95)
         self._fig.canvas.draw_idle()
 
     # ---------- events ----------
@@ -331,7 +333,7 @@ class MapEditor:
     def _load_map(self) -> None:
         path_str = filedialog.askopenfilename(
             title="选择地图配置文件",
-            initialdir=str(PROJECT_ROOT / "config"),
+            initialdir=str(PROJECT_ROOT / "configs"),
             filetypes=[("Map Config", "*_map_config.py"), ("All", "*")],
         )
         if not path_str:
@@ -496,21 +498,21 @@ class MapEditor:
 
         if self._agent_spawns:
             xs, zs = zip(*self._agent_spawns)
-            objs = self._ax.scatter(xs, zs, c="#50dc78", s=100, marker="o", edgecolors="white",
+            objs = self._ax.scatter(xs, zs, c="#2563EB", s=100, marker="o", edgecolors="white",
                                     linewidths=1.5, zorder=10)
             self._overlay.append(objs)
         if self._npc_spawns:
             xs, zs = zip(*self._npc_spawns)
-            objs = self._ax.scatter(xs, zs, c="#dc3c3c", s=80, marker="o", edgecolors="white",
+            objs = self._ax.scatter(xs, zs, c="#DC2626", s=80, marker="o", edgecolors="white",
                                     linewidths=1.5, zorder=10)
             self._overlay.append(objs)
         for sx, sz, dx, dz in self._stations:
             rect = plt.Rectangle((sx - 0.5, sz - 0.5), dx, dz, fill=True,
-                                 facecolor="#3c8cf0", alpha=0.25, zorder=4)
+                                 facecolor="#7C3AED", alpha=0.20, zorder=4)
             self._ax.add_patch(rect)
             self._overlay.append(rect)
             rect2 = plt.Rectangle((sx - 0.5, sz - 0.5), dx, dz, fill=False,
-                                  edgecolor="#3c8cf0", linewidth=2, zorder=5)
+                                  edgecolor="#7C3AED", linewidth=2, zorder=5)
             self._ax.add_patch(rect2)
             self._overlay.append(rect2)
 
@@ -547,7 +549,7 @@ class MapEditor:
             return
         name = name.strip()
 
-        out = PROJECT_ROOT / "config" / f"{name}_map_config.py"
+        out = PROJECT_ROOT / "configs" / f"{name}_map_config.py"
 
         grid_lines = self._format_grid()
         agent_pool = [f"        ({x}, {z})," for x, z in self._agent_spawns]

@@ -170,4 +170,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    from core import setup_logging
+    setup_logging()
     main()

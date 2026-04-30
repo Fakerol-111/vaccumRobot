@@ -85,30 +85,25 @@ def restore_rng_state(state: dict[str, Any]) -> None:
         random.setstate(state["python"])
 
 
-def build_config_snapshot(trainer) -> dict[str, Any]:
-    c = trainer.config
-    return {
-        "learning_rate": c.learning_rate,
-        "gamma": c.gamma,
-        "gae_lambda": c.gae_lambda,
-        "clip_epsilon": c.clip_epsilon,
-        "value_coef": c.value_coef,
-        "entropy_coef": c.entropy_coef,
-        "max_grad_norm": c.max_grad_norm,
-        "ppo_epochs": c.ppo_epochs,
-        "batch_size": c.batch_size,
-        "mini_batch_size": c.mini_batch_size,
-        "total_timesteps": c.total_timesteps,
-        "save_interval": c.save_interval,
-        "log_interval": c.log_interval,
-        "max_npcs": c.max_npcs,
-        "local_view_size": c.local_view_size,
-        "num_actions": c.num_actions,
-        "default_npc_count": trainer.default_npc_count,
-        "default_station_count": trainer.default_station_count,
-        "map_strategy": trainer.map_strategy,
-        "curriculum_enabled": trainer.curriculum_enabled,
-        "curriculum_stages": trainer.curriculum_stages,
-        "default_map_list": trainer._default_map_list,
-        "seed": trainer._base_seed,
+def build_config_snapshot(config, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    base = {
+        "learning_rate": config.learning_rate,
+        "gamma": config.gamma,
+        "gae_lambda": getattr(config, "gae_lambda", None),
+        "clip_epsilon": getattr(config, "clip_epsilon", None),
+        "value_coef": getattr(config, "value_coef", None),
+        "entropy_coef": getattr(config, "entropy_coef", None),
+        "max_grad_norm": config.max_grad_norm,
+        "ppo_epochs": getattr(config, "ppo_epochs", None),
+        "batch_size": getattr(config, "batch_size", None),
+        "mini_batch_size": getattr(config, "mini_batch_size", None),
+        "total_timesteps": config.total_timesteps,
+        "save_interval": config.save_interval,
+        "log_interval": config.log_interval,
+        "max_npcs": config.max_npcs,
+        "local_view_size": config.local_view_size,
+        "num_actions": config.num_actions,
     }
+    if extra:
+        base.update(extra)
+    return base

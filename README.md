@@ -1,20 +1,21 @@
-# 清扫机器人 PPO 训练
+# 清扫机器人强化学习训练框架
 
-基于 **PyTorch + Gymnasium** 的 PPO 强化学习框架，支持**多地图轮换训练**、**课程学习**、**断点续训**、**实时 Web 监控面板**。
+基于 **PyTorch + Gymnasium** 的多算法强化学习框架，支持 **PPO / GRPO**、**多地图轮换训练**、**课程学习**、**断点续训**、**实时 Web 监控面板**。
 
 ---
 
 ## 项目结构
 
 ```
-vaccumRobot/
-├── agent/                    # 智能体核心
-│   ├── agent.py              # Agent：封装模型、优化器、前向/训练接口
-│   ├── algorithm.py          # PPO 算法实现（clip 损失、GAE）
-│   ├── model.py              # ActorCritic 双流网络（CNN 地图编码 + MLP 向量编码）
+vacuumRobot/
+├── agent/                    # 强化学习算法层
+│   ├── base.py               # Algorithm 抽象基类 + ActResult / LossInfo
+│   ├── registry.py           # 算法注册表（register / get / list_available）
+│   ├── common/               # 共享组件（Checkpoint、网络构建单元）
+│   ├── nn/                   # 网络架构（ActorCritic 双流网络）
+│   ├── ppo/                  # PPO 算法实现
+│   ├── grpo/                 # GRPO 算法实现（组内归一化、分支 rollout）
 │   ├── preprocessor.py       # 特征工程 + 奖励函数
-│   ├── checkpoint.py         # Checkpoint 数据类（含 RNG 状态、配置快照）
-│   ├── definition.py         # RolloutBatch 数据类 + GAE 计算函数
 │
 ├── core/                     # 运行框架
 │   ├── trainer.py            # Trainer 类（训练主循环、课程学习、断点续训）
@@ -35,25 +36,32 @@ vaccumRobot/
 │   ├── checkpoint_service.py # 断点查找与自动恢复
 │
 ├── scripts/                  # CLI 入口脚本
-│   ├── train.py              # 训练入口：python scripts/train.py [config] [--resume]
+│   ├── train.py              # 训练入口：python scripts/train.py [config] [--resume] [--load-weights]
 │   ├── eval.py               # 评估入口：python scripts/eval.py [--config <path>]
 │   ├── export_maps_to_json.py# 地图 .py → .json 导出
 │   ├── validate_maps_json.py # 地图 JSON 校验
 │   ├── plot_maps.py          # 地图可视化
+│   ├── map_editor.py         # 交互式地图编辑器（鼠标绘制）
 │
 ├── configs/                  # 配置文件
-│   ├── train_config.toml     # 训练配置（PPO 超参 / 环境 / 课程 / Dashboard）
+│   ├── train_config.toml     # 训练配置（算法选择 / PPO 超参 / GRPO 超参 / 环境 / 课程 / Dashboard）
 │   ├── test_config.toml      # 评估配置（地图 / episode / 断点选择）
 │   ├── runtime_config.py     # 统一配置加载器（TOML → SimpleNamespace / dict）
 │   ├── map_loader.py         # 地图 JSON 加载与校验
-│   ├── map_editor.py         # 地图编辑器
 │   ├── maps/                 # 地图数据
 │       ├── map_1.json ~ map_4.json  # 运行时地图数据
 │       └── src/                      # 地图生成源码
 │           ├── map_1.py ~ map_4.py
 │
 ├── tests/                    # 单元测试
-│   ├── test_checkpoint_service.py
+│   ├── test_registry.py          # 算法注册表测试
+│   ├── test_config_dispatch.py   # 配置派发逻辑测试
+│   ├── test_runner_assembly.py   # 训练编排组装测试
+│   ├── test_grpo_algorithm.py    # GRPO 算法生命周期测试
+│   ├── test_algorithm_base.py    # Algorithm 接口路由测试
+│   ├── test_batch.py             # GAE + RolloutBatch 测试
+│   ├── test_checkpoint.py        # Checkpoint 序列化测试
+│   ├── test_checkpoint_service.py# 断点查找服务测试
 │   ├── test_map_loader.py
 │   ├── test_paths.py
 │   ├── test_runner_smoke.py
@@ -85,6 +93,21 @@ python scripts/eval.py
 
 ## 训练
 
+### 选择算法
+
+在 `configs/train_config.toml` 中配置：
+
+```toml
+[algorithm]
+name = "grpo"   # "ppo" 或 "grpo"
+```
+
+框架通过注册表自动派发，Trainer 无需关心具体算法。也可从 PPO 预训练权重开始 GRPO 训练：
+
+```bash
+python scripts/train.py --load-weights artifacts/multi_map/checkpoints/run_id/checkpoint_5000.pt
+```
+
 ### 启动训练
 
 ```bash
@@ -107,6 +130,9 @@ python scripts/train.py --resume artifacts/multi_map/checkpoints/20260429_120000
 ### 训练配置 (`configs/train_config.toml`)
 
 ```toml
+[algorithm]
+name = "ppo"              # 算法名称，可选 "ppo" / "grpo"
+
 [ppo]
 learning_rate = 0.001
 gamma = 0.99
@@ -124,6 +150,22 @@ log_interval = 500
 num_actions = 8
 local_view_size = 21
 max_npcs = 5
+
+[grpo]
+learning_rate = 0.0003
+gamma = 0.99
+max_grad_norm = 0.5
+total_timesteps = 10_000_000_000
+save_interval = 2_000
+log_interval = 500
+num_actions = 8
+local_view_size = 21
+max_npcs = 5
+branch_window = 64            # 分支 rollout 步数
+branch_interval = 30          # 每 N 步触发一次组内更新
+num_candidates = 4            # 候选动作数
+kl_coef = 0.1                 # KL 散度惩罚系数
+action_prob_threshold = 0.01  # 候选动作概率阈值
 
 [general]
 seed = 42
@@ -233,17 +275,19 @@ Checkpoint 保存了完整训练状态：
 
 ## 实时训练监控 (Dashboard)
 
-训练时自动启动 Web 监控面板，访问 **`http://localhost:8088`**：
+训练时自动启动 Web 监控面板，访问 **`http://localhost:8088`**。面板根据算法自动切换显示指标：
 
-| 图表 | 说明 |
-|------|------|
-| Policy Loss | Actor 策略损失曲线 |
-| Value Loss | Critic 价值损失曲线 |
-| Entropy | 策略熵值曲线 |
-| Total Loss | Policy + Value 合并损失 |
+| PPO 图表 | GRPO 图表 |
+|----------|-----------|
+| Policy Loss | Group Mean Score |
+| Value Loss | Group Std Score |
+| Entropy | KL Divergence |
+| Total Loss | Total Loss |
+
+**通用图表**：
 | Episode Reward & EMA Cleaned | 每 episode 累计奖励 + 清洁分 EMA |
 | Episode 指标 | Cleaned / Steps 双轴图 |
-| Update Mean Reward | 每次 PPO update 的平均奖励 |
+| Update Mean Reward | 每次算法 update 的平均奖励 |
 | 实时日志流 | 彩色编码的事件日志（episode / update / 阶段切换） |
 
 配置：
@@ -400,11 +444,11 @@ vector_data (B, 10)                           │
 ## 测试
 
 ```bash
-# 运行所有测试
-python -m pytest tests/
+# 运行所有测试（180+ 测试）
+python -m unittest discover tests -v
 
 # 运行特定测试文件
-python -m pytest tests/test_checkpoint_service.py
-python -m pytest tests/test_map_loader.py
-python -m pytest tests/test_runtime_config.py
+python -m unittest tests/test_registry.py
+python -m unittest tests/test_grpo_algorithm.py
+python -m unittest tests/test_runner_assembly.py
 ```
