@@ -12,9 +12,14 @@ agent/
 ├── nn/                     # 网络架构
 │   └── actor_critic.py     # Actor-Critic 双流网络（CNN + MLP）
 ├── ppo/                    # PPO 算法实现
-│   ├── algorithm.py        # PPOAlgorithm(Algorithm)，外加 @register("ppo")
-│   ├── update.py           # PPO 更新核心（clip 目标、值裁剪、熵）
-│   └── batch.py            # RolloutBatch 数据类 + GAE 计算
+│   ├── algorithm.py        # PPOAlgorithm，@register("ppo")，on_step/maybe_update
+│   ├── ppo_metrics.py      # PPO 监控指标（Policy Loss, Value Loss, Entropy）
+│   ├── buffer.py           # RolloutBuffer（变长 episode 缓冲）
+│   ├── batch.py            # RolloutBatch 数据类 + GAE 计算
+│   └── update.py           # PPO 更新核心（clip 目标、值裁剪、熵）
+├── grpo/                   # GRPO 算法实现
+│   ├── algorithm.py        # GRPOAlgorithm，@register("grpo")，分支 rollout + 组内归一化
+│   └── grpo_metrics.py     # GRPO 监控指标（Mean Score, Std Score, KL）
 ├── preprocessor.py         # 环境特征工程（领域相关，算法无关）
 └── README.md
 ```
@@ -37,14 +42,18 @@ agent/dqn/
 
 **2. 实现 Algorithm 接口**
 
-只需实现 `agent/base.py` 中定义的 9 个抽象方法：
+只需实现 `agent/base.py` 中定义的抽象方法：
 
 | 方法 | 用途 |
 |---|---|
 | `act(map_img, vector, legal_mask, deterministic)` | 选择动作 |
+| `explore(map_img, vector, legal_mask)` | 随机采样（训练） |
+| `exploit(map_img, vector, legal_mask)` | 贪婪选择（评估） |
 | `collect(map_img, vector, legal_mask, action, log_prob, value, reward, done)` | 存入内部 buffer |
+| `on_step(map_img, vector, ..., done)` | 每步回调（默认调用 collect，可重写） |
 | `ready_to_update()` | buffer 是否够一次 update |
 | `update(bootstrap_value)` | 从 buffer 学习，返回 LossInfo |
+| `maybe_update(bootstrap_state)` | 按条件触发 update（默认检查 ready_to_update） |
 | `compute_value(map_img, vector, legal_mask)` | 计算状态价值（用于 bootstrapping） |
 | `save(path)` | 保存模型权重 |
 | `load(path)` | 加载模型权重 |
@@ -90,13 +99,18 @@ batch_size = 64
 `core/trainer_runner.py` 中通过 registry 获取算法类：
 
 ```python
-from agent import get_algorithm
+from agent.registry import get as get_algorithm
 
-algo_cls = get_algorithm(cfg.algo.name)
-algorithm = algo_cls(cfg.dqn if cfg.algo.name == "dqn" else cfg.ppo, device)
+algo_cls = get_algorithm(req.algo_name)
+algorithm = algo_cls(req.algo_config, device)
 ```
 
-（后续可通过统一的 `[algo]` 配置节进一步简化选择逻辑）
+`req.algo_name` 和 `req.algo_config` 由 `scripts/train.py` 根据 `[algorithm].name` 自动派发：
+
+```python
+algo_name = cfg.algo["name"]
+algo_config = getattr(cfg, algo_name, None)  # → cfg.ppo 或 cfg.grpo
+```
 
 ### 可复用的共享组件
 
