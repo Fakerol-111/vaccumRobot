@@ -18,7 +18,7 @@ from agent.common.functional import make_conv, make_fc
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, num_actions: int = 8):
+    def __init__(self, num_actions: int = 8, actor_gain: float = 0.01):
         super().__init__()
 
         self.map_encoder = nn.Sequential(
@@ -73,7 +73,7 @@ class ActorCritic(nn.Module):
             nn.SiLU(inplace=True),
         )
 
-        self.actor_head = make_fc(64, num_actions, gain=0.01)
+        self.actor_head = make_fc(64, num_actions, gain=actor_gain)
         self.critic_head = make_fc(64, 1, gain=1.0)
 
     def forward(

@@ -108,6 +108,7 @@ body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;background:#0F172A;colo
 <div class="chart-box grpo-chart"><h3>Group Mean Score</h3><canvas id="chart-mean-score"></canvas></div>
 <div class="chart-box grpo-chart"><h3>Group Std Score</h3><canvas id="chart-std-score"></canvas></div>
 <div class="chart-box grpo-chart"><h3>KL Divergence</h3><canvas id="chart-kl"></canvas></div>
+<div class="chart-box grpo-chart"><h3>Grad Norm</h3><canvas id="chart-grad-norm"></canvas></div>
 <div class="chart-box grpo-chart"><h3>Total Loss</h3><canvas id="chart-total-loss-grpo"></canvas></div>
 <div class="chart-box"><h3>Episode Reward &amp; EMA Cleaned</h3><canvas id="chart-reward"></canvas></div>
 <div class="chart-box"><h3>Episode 指标 (Cleaned / Steps)</h3><canvas id="chart-episode"></canvas></div>
@@ -134,7 +135,8 @@ const COLORS = {
     std_score: '#38BDF8',
     kl: '#FB7185',
     grpo_total_loss: '#F97316',
-    policy_loss_grpo: '#FB7185'
+    policy_loss_grpo: '#FB7185',
+    grad_norm: '#34D399'
 };
 
 const Y_PRECISION = {
@@ -142,7 +144,8 @@ const Y_PRECISION = {
     'Episode Reward': 2, 'EMA Cleaned': 1,
     'Cleaned': 0, 'Steps': 0,
     'Mean Reward': 4,
-    'Mean Score': 4, 'Std Score': 4, 'KL Divergence': 6
+    'Mean Score': 4, 'Std Score': 4, 'KL Divergence': 6,
+    'Grad Norm': 6
 };
 
 let currentAlgo = 'ppo';
@@ -245,6 +248,9 @@ const stdScoreDs = addDataset(stdScoreChart, 'Std Score', COLORS.std_score);
 const klChart = createChart('chart-kl');
 const klDs = addDataset(klChart, 'KL Divergence', COLORS.kl);
 
+const gradNormChart = createChart('chart-grad-norm');
+const gradNormDs = addDataset(gradNormChart, 'Grad Norm', COLORS.grad_norm);
+
 const grpoTotalLossChart = createChart('chart-total-loss-grpo');
 const grpoTotalLossDs = addDataset(grpoTotalLossChart, 'Total Loss', COLORS.grpo_total_loss);
 const grpoPolicyLossDs = addDataset(grpoTotalLossChart, 'Policy Loss', COLORS.policy_loss_grpo);
@@ -330,10 +336,11 @@ async function poll() {
                 addPoint(meanScoreDs, null, idx, d.mean_score);
                 addPoint(stdScoreDs, null, idx, d.std_score);
                 addPoint(klDs, null, idx, d.kl);
+                addPoint(gradNormDs, null, idx, d.grad_norm);
                 addPoint(grpoTotalLossDs, null, idx, d.total_loss);
                 addPoint(grpoPolicyLossDs, null, idx, d.policy_loss);
                 addPoint(updateRewardDs, null, idx, d.mean_score);
-                addLog('update', ts, 'group_update=' + idx + ' total_loss=' + d.total_loss.toFixed(4) + ' policy_loss=' + d.policy_loss.toFixed(4) + ' mean_score=' + d.mean_score.toFixed(4) + ' std_score=' + d.std_score.toFixed(4) + ' kl=' + d.kl.toFixed(6) + ' entropy=' + (d.entropy||0).toFixed(4));
+                addLog('update', ts, 'group_update=' + idx + ' total_loss=' + d.total_loss.toFixed(4) + ' policy_loss=' + d.policy_loss.toFixed(4) + ' mean_score=' + d.mean_score.toFixed(4) + ' std_score=' + d.std_score.toFixed(4) + ' kl=' + d.kl.toFixed(6) + ' grad_norm=' + (d.grad_norm||0).toFixed(6) + ' entropy=' + (d.entropy||0).toFixed(4));
             } else if (evt.type === 'summary') {
                 document.getElementById('h-step').textContent = d.step;
                 if (d.fps) document.getElementById('h-fps').textContent = d.fps.toFixed(0);
@@ -350,7 +357,7 @@ async function poll() {
         }
 
         [policyLossChart, valueLossChart, entropyChart, totalLossChart,
-         meanScoreChart, stdScoreChart, klChart, grpoTotalLossChart,
+         meanScoreChart, stdScoreChart, klChart, gradNormChart, grpoTotalLossChart,
          rewardChart, episodeChart, updateRewardChart].forEach(function(ch) { if (ch) ch.update(); });
 
         document.getElementById('status-dot').className = 'status-dot connected';

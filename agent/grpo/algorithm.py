@@ -75,10 +75,10 @@ class GRPOAlgorithm(Algorithm):
         self.config = config
         self.device = device or torch.device("cpu")
 
-        self.model = ActorCritic(num_actions=config.num_actions)
+        self.model = ActorCritic(num_actions=config.num_actions, actor_gain=1.0)
         self.model.to(self.device)
 
-        self.reference = ActorCritic(num_actions=config.num_actions)
+        self.reference = ActorCritic(num_actions=config.num_actions, actor_gain=1.0)
         self.reference.to(self.device)
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.learning_rate)
@@ -86,6 +86,7 @@ class GRPOAlgorithm(Algorithm):
         self._steps_since_group = 0
         self._current_env_config: dict[str, Any] | None = None
         self._branch_state: dict[str, Any] | None = None
+        self._episode_count = 0
         self._metrics_reporter = GRPOMetricsReporter()
 
     # ── tensor helpers ────────────────────────────────────
@@ -162,9 +163,15 @@ class GRPOAlgorithm(Algorithm):
     ) -> LossInfo | None:
         self._steps_since_group += 1
         interval = getattr(self.config, "branch_interval", 0)
+        result = None
         if interval > 0 and self._steps_since_group >= interval:
-            return self.group_update(map_img, vector, legal_mask, self._current_env_config)
-        return None
+            result = self.group_update(map_img, vector, legal_mask, self._current_env_config)
+
+        if done:
+            self._episode_count += 1
+            self._sync_reference()
+
+        return result
 
     def ready_to_update(self) -> bool:
         return False
@@ -198,6 +205,17 @@ class GRPOAlgorithm(Algorithm):
             Categorical(logits=cur_logits),
             Categorical(logits=ref_logits),
         ).mean()
+
+    def _sync_reference(self) -> None:
+        """将当前策略权重复制给 reference model。
+
+        受 ``config.ref_sync`` 控制：
+          - "episode"（默认）: 每 episode 结束时同步
+          - 0 / False / None: 禁用（完全冻结）
+        """
+        if not getattr(self.config, "ref_sync", "episode"):
+            return
+        self.reference.load_state_dict(self.model.state_dict())
 
     def _record_npc_trace(
         self,
@@ -243,10 +261,10 @@ class GRPOAlgorithm(Algorithm):
         window: int,
         npc_trace: list[list[tuple[int, int]]] | None = None,
     ) -> float:
-        """从分支点执行一条分支：恢复状态 → 候选动作 → 后续 greedy。
+        """从分支点执行一条分支，返回环境原始 score 增量（打扫的污渍格数）。
 
-        如果提供 npc_trace，则 NPC 沿 trace 移动而非随机漫步，
-        确保所有分支的 NPC 轨迹一致。
+        恢复状态 → 候选动作 → 后续 greedy。
+        使用 env.score 差值而非 shaped reward，确保分支之间公平比较。
         """
         bs = self._branch_state
         if bs is not None:
@@ -256,35 +274,33 @@ class GRPOAlgorithm(Algorithm):
             pp.set_state(bs["pp"])
             if npc_trace is not None:
                 env.set_npc_trace(npc_trace)
-            total_reward = 0.0
+            start_score = env.score
         else:
             # Fallback: 无分支状态时从 episode 起点开始
             env = create_env(env_config, enable_recording=False, render_mode=None)
             payload = env.reset(options={"mode": "eval"})
             pp = Preprocessor()
             pp.reset()
-            img, vec, legal, reward = pp.feature_process(payload, pp.curr_action)
-            total_reward = reward
+            start_score = 0
 
         # 第一步：candidate action
         payload = env.step(first_action)
-        img, vec, legal, reward = pp.feature_process(payload, first_action)
-        total_reward += reward
+        img, vec, legal, _ = pp.feature_process(payload, first_action)
         legal_arr = np.asarray(legal, dtype=np.float32)
 
-        # 后续：greedy
+        # 后续：greedy（仍需 preprocessor 获取特征，但忽略其 reward）
         for _ in range(window - 1):
             logits = self._get_logits(img, vec, legal_arr)
             action = int(torch.argmax(logits, dim=-1).item())
             payload = env.step(action)
-            img, vec, legal, reward = pp.feature_process(payload, action)
-            total_reward += reward
+            img, vec, legal, _ = pp.feature_process(payload, action)
             legal_arr = np.asarray(legal, dtype=np.float32)
             if payload.get("terminated") or payload.get("truncated"):
                 break
 
+        score_delta = env.score - start_score
         env.close()
-        return total_reward
+        return score_delta
 
     def _get_logits(self, map_img, vector, legal_mask):
         map_img_t, vector_t, legal_t = self._to_tensor(map_img, vector, legal_mask)
@@ -365,6 +381,9 @@ class GRPOAlgorithm(Algorithm):
         self.optimizer.zero_grad()
         total_loss.backward()
         nn.utils.clip_grad_norm_(self.model.parameters(), self.config.max_grad_norm)
+        grad_norm = sum(
+            p.grad.norm().item() ** 2 for p in self.model.parameters() if p.grad is not None
+        ) ** 0.5
         self.optimizer.step()
         self.model.eval()
 
@@ -379,6 +398,7 @@ class GRPOAlgorithm(Algorithm):
             extra={
                 "std_reward": float(scores_t.std().item()),
                 "kl_divergence": float(kl.item()),
+                "grad_norm": float(grad_norm),
             },
         )
         self._metrics_reporter.record_update(loss_info)

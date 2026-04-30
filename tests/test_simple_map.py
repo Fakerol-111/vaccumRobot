@@ -20,12 +20,20 @@ class TestSimpleMap(unittest.TestCase):
         self.assertTrue((grid[-1, :] == 0).all())
         self.assertTrue((grid[:, 0] == 0).all())
         self.assertTrue((grid[:, -1] == 0).all())
-        self.assertTrue((grid[1:-1, 1:-1] == 2).all())
+        # Four corner obstacles
+        self.assertTrue((grid[0:32, 0:32] == 0).all())
+        self.assertTrue((grid[0:32, 96:128] == 0).all())
+        self.assertTrue((grid[96:128, 0:32] == 0).all())
+        self.assertTrue((grid[96:128, 96:128] == 0).all())
+        # Center obstacle
+        self.assertTrue((grid[56:72, 56:72] == 0).all())
+        # Open area is dirty
+        self.assertTrue((grid[40:56, 40:56] == 2).all())
 
     def test_config_contents(self):
         self.assertEqual(MAP_CONFIG["size"], (128, 128))
         self.assertEqual(len(MAP_CONFIG["agent_spawn_pool"]), 4)
-        self.assertEqual(len(MAP_CONFIG["npc_spawn_pool"]), 5)
+        self.assertEqual(len(MAP_CONFIG["npc_spawn_pool"]), 4)
         self.assertEqual(len(MAP_CONFIG["station_pool"]), 4)
 
     def test_environment_can_be_created(self):
@@ -46,11 +54,11 @@ class TestSimpleMap(unittest.TestCase):
         cfg["custom_map"] = build_map(128)
         cfg["npc_count"] = 1
         cfg["station_count"] = 4
-        env = GridWorldEnv(**cfg, agent_spawn_mode=0, npc_spawn_modes=[4])
+        env = GridWorldEnv(**cfg, agent_spawn_mode=0, npc_spawn_modes=[3])
         payload = env.reset(seed=42)
         self.assertEqual(payload["observation"]["frame_state"]["heroes"]["pos"], {"x": 64, "z": 1})
         npc_pos = payload["extra_info"]["frame_state"]["npcs"][0]["pos"]
-        self.assertEqual(npc_pos, {"x": 96, "z": 32})
+        self.assertEqual(npc_pos, {"x": 95, "z": 95})
 
     def test_random_spawns_differ_per_reset(self):
         cfg = dict(MAP_CONFIG)
