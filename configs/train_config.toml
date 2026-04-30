@@ -74,9 +74,9 @@ log_interval = 500
 num_actions = 8
 branch_window = 100   # 每条分支 rollout 步数
 branch_interval = 50   # 主轨迹中每隔多少步做一次组更新
-num_candidates = 4     # 候选动作数（K）
+num_candidates = 2     # 候选动作数（K）
 kl_coef = 0.1          # KL 散度惩罚系数
-entropy_coef = 0.001   # 熵正则系数（负值推离均匀分布，打破对称性）
+entropy_coef = 0.01   # 熵正则系数（负值推离均匀分布，打破对称性）
 ref_sync = "episode"        # reference model 同步策略: "episode" | false
 
 [dashboard]

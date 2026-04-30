@@ -54,6 +54,7 @@ def run_training(req: TrainRequest) -> TrainResult:
         resume_from = _resolve_resume(req.resume_from, req.training_config)
 
     run_id = req.run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+    resolved_resume = resolve_checkpoint(resume_from, req.artifacts_root)
 
     run_dir = get_run_dir(checkpoints_root, run_id)
 
