@@ -122,13 +122,9 @@ def _parse_algorithm(raw: dict[str, Any]) -> dict[str, Any]:
 
 def _parse_grpo(raw: dict[str, Any]) -> SimpleNamespace:
     grpo = raw.get("grpo", {})
-    default_window = max(8, int(2.0 / (1.0 - float(raw.get("ppo", {}).get("gamma", 0.99))) + 0.5))
     return SimpleNamespace(
         learning_rate=float(grpo.get("learning_rate", 3e-4)),
-        gamma=float(grpo.get("gamma", raw.get("ppo", {}).get("gamma", 0.99))),
-        clip_epsilon=float(grpo.get("clip_epsilon", 0.2)),
-        value_coef=float(grpo.get("value_coef", 0.5)),
-        entropy_coef=float(grpo.get("entropy_coef", 0.01)),
+        gamma=float(grpo.get("gamma", 0.99)),
         max_grad_norm=float(grpo.get("max_grad_norm", 0.5)),
         total_timesteps=int(grpo.get("total_timesteps", 10_000)),
         save_interval=int(grpo.get("save_interval", 5_000)),
@@ -138,8 +134,7 @@ def _parse_grpo(raw: dict[str, Any]) -> SimpleNamespace:
         local_view_size=int(grpo.get("local_view_size", 21)),
         num_actions=int(grpo.get("num_actions", 8)),
         batch_size=int(grpo.get("batch_size", 256)),
-        # GRPO-specific
-        branch_window=int(grpo.get("branch_window", default_window)),
+        branch_window=int(grpo.get("branch_window", 200)),
         branch_interval=int(grpo.get("branch_interval", 30)),
         num_candidates=int(grpo.get("num_candidates", 4)),
         kl_coef=float(grpo.get("kl_coef", 0.1)),

@@ -34,26 +34,32 @@ from agent.registry import register
 from env.factory import create_env
 
 
-def _top_k_actions(
+
+def _sample_candidate_actions(
     logits: torch.Tensor,
     legal_mask: np.ndarray,
     k: int,
-    prob_threshold: float = 0.01,
 ) -> list[int]:
-    """取当前策略 top-K 合法动作，过滤概率低于阈值的候选。"""
+    """从策略分布采样 K 个合法候选动作。
+
+    采样取代确定性 top-K 选择，使得即使策略接近均匀分布，
+    各候选动作的 log_prob 也天然不同，与组内归一化的 advantage
+    产生非零梯度信号，打破对称性坍缩。
+    """
+
     probs = torch.softmax(logits, dim=-1).squeeze(0)
     mask = torch.as_tensor(legal_mask, dtype=torch.bool, device=logits.device)
     probs = probs * mask.float()
     probs = probs / (probs.sum() + 1e-10)
-    sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-    actions: list[int] = []
-    for i in range(len(sorted_indices)):
-        if len(actions) >= k:
-            break
-        if sorted_probs[i].item() < prob_threshold:
-            break
-        actions.append(int(sorted_indices[i].item()))
-    return actions
+
+    num_valid = int(mask.sum().item())
+    k_safe = min(k, num_valid)
+    if k_safe < 2:
+        return []
+
+    indices = torch.multinomial(probs, k_safe, replacement=False)
+    return [int(idx.item()) for idx in indices]
+
 
 
 @register("grpo")
@@ -303,30 +309,35 @@ class GRPOAlgorithm(Algorithm):
         map_img_t, vector_t, legal_t = self._to_tensor(map_img, vector, legal_arr)
         logits, _ = self.model(map_img_t, vector_t, legal_t)
 
-        top_actions = _top_k_actions(
+
+        candidate_actions = _sample_candidate_actions(
             logits, legal_arr, self.config.num_candidates,
-            self.config.action_prob_threshold,
         )
-        if len(top_actions) < 2:
+        if len(candidate_actions) < 2:
+
             return None
 
         # 2. 候选动作在当前策略下的 log_prob（含梯度）
         cur_dist = Categorical(logits=logits)
         log_probs_t = []
-        for a in top_actions:
+
+        for a in candidate_actions:
+
             action_t = torch.tensor([a], device=self.device)
             log_probs_t.append(cur_dist.log_prob(action_t))
         log_probs_t = torch.stack(log_probs_t)
 
         # 3. 先跑 greedy 分支记录 NPC 轨迹
-        greedy_action = top_actions[0]
+
+        greedy_action = candidate_actions[0]
+
         npc_trace = self._record_npc_trace(
             greedy_action, env_config, self.config.branch_window,
         )
 
         # 4. 所有候选分支（含 greedy）恢复状态并强制 NPC 轨迹一致
         scores = []
-        for a in top_actions:
+        for a in candidate_actions:
             score = self._rollout_branch(a, env_config, self.config.branch_window, npc_trace)
             scores.append(score)
 

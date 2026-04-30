@@ -146,19 +146,27 @@ class Trainer:
             payload = self._env.reset(seed=self._base_seed + self._episode_counter, options={"mode": "train"})
             self.preprocessor.reset()
 
-            while global_step < self.config.total_timesteps:
-                self._log_stage_transition(global_step)
-                payload, global_step = self._collect_batch(payload, global_step)
+            try:
+                while global_step < self.config.total_timesteps:
+                    self._log_stage_transition(global_step)
+                    payload, global_step, algo_updated = self._collect_batch(payload, global_step)
 
-                bootstrap_state = None
-                if not self._last_done:
-                    m, v, l, _ = self.preprocessor.feature_process(payload, self.preprocessor.curr_action)
-                    bootstrap_state = (m, v, l)
-                if self.algorithm.maybe_update(bootstrap_state) is not None:
-                    self._log_progress(global_step, start_time)
+                    bootstrap_state = None
+                    if not self._last_done:
+                        m, v, l, _ = self.preprocessor.feature_process(payload, self.preprocessor.curr_action)
+                        bootstrap_state = (m, v, l)
+                    if algo_updated or self.algorithm.maybe_update(bootstrap_state) is not None:
+                        self._log_progress(global_step, start_time)
 
-                if self._should_checkpoint(global_step):
-                    self._save_checkpoint(global_step)
+                    if self._should_checkpoint(global_step):
+                        self._save_checkpoint(global_step)
+            except KeyboardInterrupt:
+                self.logger._emit("")
+                self.logger._emit(">>> KeyboardInterrupt received, saving checkpoint ...")
+                self._save_checkpoint(global_step)
+                self._final_summary(start_time, global_step)
+                self.logger._emit(">>> Training stopped by user.")
+                return
 
             self._save_checkpoint(global_step)
             self.logger._emit(f"Model saved to {self.checkpoint_dir}")
@@ -390,8 +398,9 @@ class Trainer:
 
     def _collect_batch(
         self, payload: dict, global_step: int,
-    ) -> tuple[dict, int]:
+    ) -> tuple[dict, int, bool]:
         remaining = self.config.batch_size
+        algo_updated = False
 
         while remaining > 0 and global_step < self.config.total_timesteps:
             map_img, vector, legal_mask, reward = self.preprocessor.feature_process(
@@ -410,11 +419,13 @@ class Trainer:
             payload = self._env.step(result.action)
             done = bool(payload["terminated"] or payload["truncated"])
 
-            self.algorithm.on_step(
+            ret = self.algorithm.on_step(
                 map_img, vector, np.array(legal_mask, dtype=np.float32),
                 result.action, result.log_prob, result.value,
                 reward, done,
             )
+            if ret is not None:
+                algo_updated = True
 
             self._last_done = done
 
@@ -437,7 +448,7 @@ class Trainer:
                 payload = self._env.reset(seed=self._base_seed + self._episode_counter, options={"mode": "train"})
                 self.preprocessor.reset()
 
-        return payload, global_step
+        return payload, global_step, algo_updated
 
     def _log_progress(self, global_step: int, start_time: float) -> None:
         if global_step % self.config.log_interval != 0:
@@ -513,19 +524,27 @@ class Trainer:
             payload = self._env.reset(seed=self._base_seed + self._episode_counter, options={"mode": "train"})
             self.preprocessor.reset()
 
-            while global_step < self.config.total_timesteps:
-                self._log_stage_transition(global_step)
-                payload, global_step = self._collect_batch(payload, global_step)
+            try:
+                while global_step < self.config.total_timesteps:
+                    self._log_stage_transition(global_step)
+                    payload, global_step, algo_updated = self._collect_batch(payload, global_step)
 
-                bootstrap_state = None
-                if not self._last_done:
-                    m, v, l, _ = self.preprocessor.feature_process(payload, self.preprocessor.curr_action)
-                    bootstrap_state = (m, v, l)
-                if self.algorithm.maybe_update(bootstrap_state) is not None:
-                    self._log_progress(global_step, start_time)
+                    bootstrap_state = None
+                    if not self._last_done:
+                        m, v, l, _ = self.preprocessor.feature_process(payload, self.preprocessor.curr_action)
+                        bootstrap_state = (m, v, l)
+                    if algo_updated or self.algorithm.maybe_update(bootstrap_state) is not None:
+                        self._log_progress(global_step, start_time)
 
-                if self._should_checkpoint(global_step):
-                    self._save_checkpoint(global_step)
+                    if self._should_checkpoint(global_step):
+                        self._save_checkpoint(global_step)
+            except KeyboardInterrupt:
+                self.logger._emit("")
+                self.logger._emit(">>> KeyboardInterrupt received, saving checkpoint ...")
+                self._save_checkpoint(global_step)
+                self._final_summary(start_time, global_step)
+                self.logger._emit(">>> Training stopped by user.")
+                return
 
             self._save_checkpoint(global_step)
             self.logger._emit(f"Model saved to {self.checkpoint_dir}")
