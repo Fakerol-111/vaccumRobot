@@ -62,25 +62,21 @@ eval_episodes = 10
 # 例如: resume_from = "artifacts/multi_map/checkpoints/20260429_120000/checkpoint_5000.pt"
 # 或者: resume_from = "artifacts/multi_map/checkpoints/20260429_120000"  (自动选择最新的)
 # 留空 / 注释掉 = 从头开始训练
-# resume_from = "D:\ProgrammeProject\vaccumRobot\artifacts\multi_map\checkpoints\20260429_215913"
+resume_from = "D:\\ProgrammeProject\\vaccumRobot\\artifacts\\multi_map\\checkpoints\\20260429_215913"
 
 [grpo]
 learning_rate = 0.0003
-gamma = 0.99
 max_grad_norm = 0.5
 total_timesteps = 10_000_000_000
 save_interval = 2_000          # 若save_time_interval被启用则不会使用此参数
 save_time_interval = 300       # 按时间保存（秒），0 = 禁用，300 = 每5分钟保存一次
 log_interval = 500
-max_npcs = 5
-local_view_size = 21
 num_actions = 8
-batch_size = 256
 branch_window = 100   # 每条分支 rollout 步数
-branch_interval = 10   # 主轨迹中每隔多少步做一次组更新
+branch_interval = 50   # 主轨迹中每隔多少步做一次组更新
 num_candidates = 4     # 候选动作数（K）
 kl_coef = 0.1          # KL 散度惩罚系数
-action_prob_threshold = 0.01  # 候选动作最低概率阈值
+entropy_coef = 0.001   # 熵正则系数（负值推离均匀分布，打破对称性）
 ref_sync = "episode"        # reference model 同步策略: "episode" | false
 
 [dashboard]

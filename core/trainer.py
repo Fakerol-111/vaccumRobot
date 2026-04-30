@@ -517,6 +517,24 @@ class Trainer:
             self.logger._emit(f"  Checkpoint: {checkpoint_path}")
             self.logger._emit("=" * 65)
 
+            if self._collector is not None:
+                algo_name = type(self.algorithm).__name__.replace("Algorithm", "").lower()
+                self._collector.set_run_info({
+                    "algo": algo_name,
+                    "run_id": self.run_id,
+                    "seed": self._base_seed,
+                    "total_timesteps": self.config.total_timesteps,
+                    "map_strategy": self.map_strategy,
+                    "curriculum_enabled": self.curriculum_enabled,
+                    "maps": self._default_map_list,
+                    "batch_size": getattr(self.config, "batch_size", None),
+                    "lr": self.config.learning_rate,
+                })
+                self._collector.add_event("info", {
+                    "algo": algo_name, "run_id": self.run_id, "seed": self._base_seed,
+                    "message": f"Run resumed: {self.run_id}  seed={self._base_seed}",
+                })
+
             self._env = self._create_next_env(global_step)
             self._episode_steps = 0
             self._episode_reward = 0.0

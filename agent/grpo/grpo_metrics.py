@@ -20,6 +20,7 @@ class GRPOMetricsReporter(MetricsReporter):
         self.std_scores: list[float] = []
         self.kls: list[float] = []
         self.entropies: list[float] = []
+        self.grad_norms: list[float] = []
 
     def record_update(self, loss_info: LossInfo) -> None:
         extra = loss_info.extra
@@ -29,6 +30,8 @@ class GRPOMetricsReporter(MetricsReporter):
         self.std_scores.append(extra.get("std_reward", 0.0))
         self.kls.append(extra.get("kl_divergence", 0.0))
         self.entropies.append(loss_info.entropy or 0.0)
+        gn = extra.get("grad_norm", 0.0)
+        self.grad_norms.append(gn)
         self._push_event("group_update", {
             "total_loss": loss_info.total_loss,
             "policy_loss": loss_info.policy_loss,
@@ -36,6 +39,7 @@ class GRPOMetricsReporter(MetricsReporter):
             "std_score": extra.get("std_reward"),
             "kl": extra.get("kl_divergence"),
             "entropy": loss_info.entropy,
+            "grad_norm": gn,
         })
 
     def update_summary(self) -> str:
