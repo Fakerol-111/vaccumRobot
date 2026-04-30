@@ -7,12 +7,16 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from agent.registry import list_available
 from configs.runtime_config import load_train_config_bundle
 from core.trainer_runner import run_training
 from core.types import TrainRequest
@@ -29,14 +33,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "or --resume (without value) to auto-detect.")
     parser.add_argument("--checkpoint", type=str, default=None,
                         help="Alias for --resume <path>")
+    parser.add_argument("--load-weights", type=str, default=None,
+                        help="Load model weights from a .pt file and start training from step 0. "
+                             "Useful for loading a pre-trained PPO model before GRPO training.")
     return parser.parse_args(argv)
 
 
-def main(config_path: Path | None = None, resume_from: Path | str | None = None):
+def main(config_path: Path | None = None, resume_from: Path | str | None = None,
+         load_weights_from: Path | str | None = None):
     cfg = load_train_config_bundle(config_path)
 
+    algo_name = cfg.algo["name"]
+    if algo_name not in list_available():
+        raise ValueError(f"Unknown algorithm {algo_name!r}. Available: {list_available()}")
+
     req = TrainRequest(
-        ppo_config=cfg.ppo,
+        algo_config=getattr(cfg, algo_name, None),
+        algo_name=algo_name,
         env_config=cfg.env,
         curriculum=cfg.curriculum,
         training_config=cfg.training,
@@ -46,14 +59,18 @@ def main(config_path: Path | None = None, resume_from: Path | str | None = None)
         config_path=cfg.config_path,
         artifacts_root=PROJECT_ROOT / cfg.training["artifacts_dir"],
         resume_from=Path(resume_from) if resume_from else None,
+        load_weights_from=Path(load_weights_from) if load_weights_from else None,
     )
 
     result = run_training(req)
     if result.error:
-        print(f"[train] Training failed: {result.error}")
+        logger.error("Training failed: %s", result.error)
 
 
 if __name__ == "__main__":
+    from core import setup_logging
+    setup_logging()
+
     args = parse_args()
     config_path = Path(args.config) if args.config else None
 
@@ -68,4 +85,6 @@ if __name__ == "__main__":
         else:
             resume_path = args.resume
 
-    main(config_path, resume_from=resume_path)
+    load_weights_path = args.load_weights
+
+    main(config_path, resume_from=resume_path, load_weights_from=load_weights_path)

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
-from agent.agent import Agent
+from agent.ppo import PPOAlgorithm
+
+logger = logging.getLogger(__name__)
+from agent.preprocessor import Preprocessor
 from configs.runtime_config import build_multi_env_configs
 from core import get_device
 from core.paths import find_checkpoint, find_run_dir, get_artifacts_root, get_checkpoints_root, get_eval_dir
@@ -70,11 +74,10 @@ def _print_results(result: EvalResult) -> None:
         f"{result.overall_avg_steps:>10.1f} {result.overall_avg_charges:>12.2f}"
     )
     print()
-    print(f"Files saved to {result.eval_dir}")
-    print(f"  summary_all.txt  - overall summary")
+    logger.info("Files saved to %s", result.eval_dir)
     for res in result.results:
-        print(f"  {res.map_name}/summary.txt  - per-map summary")
-        print(f"  {res.map_name}/*.gif        - trajectory GIFs")
+        logger.info("  %s/summary.txt", res.map_name)
+        logger.info("  %s/*.gif", res.map_name)
 
 
 def run_evaluation(req: EvalRequest) -> EvalResult:
@@ -91,20 +94,22 @@ def run_evaluation(req: EvalRequest) -> EvalResult:
             error=str(e),
         )
 
-    print(f"Run:          {ctx.run_dir.name}")
-    print(f"Step:         {ctx.checkpoint_step}")
-    print(f"Model:        {ctx.model_path}")
-    print(f"Maps:         {ctx.map_names}")
-    print(f"Episodes/map: {req.num_episodes}")
-    print(f"GIF FPS:      {req.gif_fps}")
-    print(f"Output:       {ctx.eval_dir}")
+    logger.info("Run:          %s", ctx.run_dir.name)
+    logger.info("Step:         %s", ctx.checkpoint_step)
+    logger.info("Model:        %s", ctx.model_path)
+    logger.info("Maps:         %s", ctx.map_names)
+    logger.info("Episodes/map: %s", req.num_episodes)
+    logger.info("GIF FPS:      %s", req.gif_fps)
+    logger.info("Output:       %s", ctx.eval_dir)
 
     device = get_device()
-    agent = Agent(req.ppo_config, device)
-    agent.load(ctx.model_path)
+    algorithm = PPOAlgorithm(req.algo_config, device)
+    algorithm.load(ctx.model_path)
+    preprocessor = Preprocessor()
 
     raw = evaluate_multi_map_with_recording(
-        agent,
+        algorithm,
+        preprocessor,
         ctx.map_configs,
         ctx.map_names,
         ctx.eval_dir,

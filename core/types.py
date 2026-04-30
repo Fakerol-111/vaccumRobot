@@ -13,7 +13,7 @@ from core.evaluator import MapEvalResult
 @dataclass
 class TrainRequest:
     """Everything needed to start a training run."""
-    ppo_config: SimpleNamespace
+    algo_config: SimpleNamespace
     env_config: dict[str, Any]
     curriculum: dict[str, Any]
     training_config: dict[str, Any]
@@ -22,8 +22,10 @@ class TrainRequest:
     metrics_config: dict[str, Any]
     config_path: Path
     artifacts_root: Path
+    algo_name: str = "ppo"
     resume_from: Path | None = None
     run_id: str | None = None
+    load_weights_from: Path | None = None
 
 
 @dataclass
@@ -37,7 +39,7 @@ class EvalRequest:
     step: int | None
     gif_fps: int
     output_dir: Path | None
-    ppo_config: SimpleNamespace
+    algo_config: SimpleNamespace
     env_config: dict[str, Any]
     artifacts_root: Path
 

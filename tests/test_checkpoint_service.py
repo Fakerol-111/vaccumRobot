@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import io
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from services.checkpoint_service import (
     find_latest_run,
@@ -135,11 +133,11 @@ class TestResolveCheckpoint(unittest.TestCase):
         result = resolve_checkpoint(self.run_dir, self.artifacts_root)
         self.assertIsNone(result)
 
-    @patch("sys.stdout", new_callable=io.StringIO)
-    def test_resolve_nonexistent_prints_warning(self, mock_stdout):
-        result = resolve_checkpoint(Path("/nonexistent/ckpt.pt"), self.artifacts_root)
+    def test_resolve_nonexistent_logs_warning(self):
+        with self.assertLogs("services.checkpoint_service", level="WARNING") as log:
+            result = resolve_checkpoint(Path("/nonexistent/ckpt.pt"), self.artifacts_root)
         self.assertIsNone(result)
-        self.assertIn("Checkpoint not found", mock_stdout.getvalue())
+        self.assertTrue(any("Checkpoint not found" in msg for msg in log.output))
 
 
 class TestResolveAutoResume(unittest.TestCase):

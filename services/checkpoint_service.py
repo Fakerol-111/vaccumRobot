@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from core.paths import find_checkpoint, find_run_dir, get_checkpoints_root
+
+logger = logging.getLogger(__name__)
 
 
 def find_latest_run(checkpoints_root: Path) -> Path | None:
@@ -29,7 +32,7 @@ def resolve_checkpoint(
     if resume_path.is_dir():
         found = find_latest_checkpoint(resume_path)
         if found is None:
-            print(f"[checkpoint_service] No checkpoint found in {resume_path}")
+            logger.warning("No checkpoint found in %s", resume_path)
             return None
         resume_path = found
     elif not resume_path.is_absolute():
@@ -41,7 +44,7 @@ def resolve_checkpoint(
                 resume_path = found
 
     if not resume_path.exists():
-        print(f"[checkpoint_service] Checkpoint not found: {resume_path}")
+        logger.warning("Checkpoint not found: %s", resume_path)
         return None
     return resume_path
 
@@ -49,17 +52,17 @@ def resolve_checkpoint(
 def resolve_auto_resume(artifacts_root: Path) -> Path | None:
     checkpoints_root = get_checkpoints_root(artifacts_root)
     if not checkpoints_root.exists():
-        print(f"[checkpoint_service] No checkpoints root: {checkpoints_root}")
+        logger.warning("No checkpoints root: %s", checkpoints_root)
         return None
     run_dir = find_latest_run(checkpoints_root)
     if run_dir is None:
-        print("[checkpoint_service] No run directories found")
+        logger.warning("No run directories found")
         return None
     found = find_latest_checkpoint(run_dir)
     if found is None:
-        print(f"[checkpoint_service] No checkpoint in {run_dir}")
+        logger.warning("No checkpoint in %s", run_dir)
         return None
-    print(f"[checkpoint_service] Auto-resume: found {found}")
+    logger.info("Auto-resume: found %s", found)
     return found
 
 

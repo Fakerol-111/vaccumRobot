@@ -94,6 +94,68 @@ class Preprocessor:
         self.active_charger_key = None
         self.charger_potential_enabled = 1.0
 
+    # ── state save / restore ─────────────────────────────
+
+    def get_state(self) -> dict[str, Any]:
+        active_map = getattr(self, "_view_map", None)
+        return {
+            "step_no": self.step_no,
+            "battery": self.battery,
+            "last_battery": self.last_battery,
+            "battery_max": self.battery_max,
+            "cur_pos": self.cur_pos,
+            "last_pos": self.last_pos,
+            "dirt_cleaned": self.dirt_cleaned,
+            "last_dirt_cleaned": self.last_dirt_cleaned,
+            "total_dirt": self.total_dirt,
+            "visit_count": self.visit_count.copy(),
+            "recent_positions": list(self.recent_positions),
+            "nearest_charger_dist": self.nearest_charger_dist,
+            "last_nearest_charger_dist": self.last_nearest_charger_dist,
+            "_legal_act": list(self._legal_act),
+            "stuck_steps": self.stuck_steps,
+            "prev_action": self.prev_action,
+            "curr_action": self.curr_action,
+            "_last_map_img": self._last_map_img.copy(),
+            "_last_npc_danger_map": self._last_npc_danger_map.copy(),
+            "charger_cooldown": dict(self.charger_cooldown),
+            "charger_cooldown_steps": self.charger_cooldown_steps,
+            "active_charger_key": self.active_charger_key,
+            "charger_potential_enabled": self.charger_potential_enabled,
+            "_view_map": active_map.copy() if active_map is not None else None,
+        }
+
+    def set_state(self, state: dict[str, Any]) -> None:
+        from collections import deque
+        self.step_no = state["step_no"]
+        self.battery = state["battery"]
+        self.last_battery = state["last_battery"]
+        self.battery_max = state["battery_max"]
+        self.cur_pos = state["cur_pos"]
+        self.last_pos = state["last_pos"]
+        self.dirt_cleaned = state["dirt_cleaned"]
+        self.last_dirt_cleaned = state["last_dirt_cleaned"]
+        self.total_dirt = state["total_dirt"]
+        self.visit_count = state["visit_count"].copy()
+        self.recent_positions = deque(state["recent_positions"], maxlen=15)
+        self.nearest_charger_dist = state["nearest_charger_dist"]
+        self.last_nearest_charger_dist = state["last_nearest_charger_dist"]
+        self._legal_act = list(state["_legal_act"])
+        self.stuck_steps = state["stuck_steps"]
+        self.prev_action = state["prev_action"]
+        self.curr_action = state["curr_action"]
+        self._last_map_img = state["_last_map_img"].copy()
+        self._last_npc_danger_map = state["_last_npc_danger_map"].copy()
+        self.charger_cooldown = dict(state["charger_cooldown"])
+        self.charger_cooldown_steps = state["charger_cooldown_steps"]
+        self.active_charger_key = state["active_charger_key"]
+        self.charger_potential_enabled = state["charger_potential_enabled"]
+        vm = state.get("_view_map")
+        if vm is not None:
+            self._view_map = vm.copy()
+        elif hasattr(self, "_view_map"):
+            del self._view_map
+
     # ---------- parsing ----------
 
     def pb2struct(self, env_obs: dict[str, Any], last_action: int | None):

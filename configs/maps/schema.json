@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/your-org/vaccum-robot/schemas/map_config.json",
+  "$id": "https://github.com/your-org/vacuum-robot/schemas/map_config.json",
   "title": "GridWorld Map Configuration",
   "description": "Schema for GridWorld robot vacuum map configuration files",
   "type": "object",

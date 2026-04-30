@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import logging
 import random
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 import torch
 
+from agent.preprocessor import Preprocessor
+from agent.registry import get as get_algorithm
 from core import get_device
 from core.paths import get_checkpoints_root, get_run_dir
 from core.types import TrainRequest, TrainResult
@@ -42,7 +47,11 @@ def run_training(req: TrainRequest) -> TrainResult:
     checkpoints_root = get_checkpoints_root(req.artifacts_root)
     checkpoints_root.mkdir(parents=True, exist_ok=True)
 
-    resume_from = _resolve_resume(req.resume_from, req.training_config)
+    # --load-weights 与 resume 互斥
+    if req.load_weights_from is not None:
+        resume_from = None
+    else:
+        resume_from = _resolve_resume(req.resume_from, req.training_config)
 
     resolved_resume = resolve_checkpoint(resume_from, req.artifacts_root)
     if resolved_resume is not None and req.run_id is None:
@@ -55,14 +64,33 @@ def run_training(req: TrainRequest) -> TrainResult:
     env = req.env_config
     collector, dashboard_server = create_dashboard(req.dashboard_config)
 
+    device = get_device()
+    algo_cls = get_algorithm(req.algo_name)
+    algorithm = algo_cls(req.algo_config, device)
+
+    # 只加载权重（不计步、不恢复优化器状态），从 step 0 开始训练
+    if req.load_weights_from is not None:
+        algorithm.load(str(req.load_weights_from))
+        logger.info("Loaded weights from %s, starting training from step 0", req.load_weights_from)
+
+    # 注入 dashboard collector 到算法指标采集器
+    if collector is not None:
+        reporter = algorithm.metrics_reporter
+        if reporter is not None:
+            reporter.set_collector(collector)
+
+    preprocessor = Preprocessor()
+
     trainer = Trainer(
-        ppo_config=req.ppo_config,
+        algorithm=algorithm,
+        preprocessor=preprocessor,
+        algo_config=req.algo_config,
         default_npc_count=env["default_npc_count"],
         default_station_count=env["default_station_count"],
         map_strategy=env["map_strategy"],
         curriculum=req.curriculum,
         artifacts_dir=req.artifacts_root,
-        device=get_device(),
+        device=device,
         collector=collector,
         default_map_list=env["default_map_list"],
         seed=req.general_config["seed"],
@@ -81,5 +109,5 @@ def run_training(req: TrainRequest) -> TrainResult:
     return TrainResult(
         run_id=run_id,
         run_dir=run_dir,
-        total_steps=req.ppo_config.total_timesteps,
+        total_steps=req.algo_config.total_timesteps,
     )

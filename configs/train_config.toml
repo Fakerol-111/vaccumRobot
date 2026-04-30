@@ -1,3 +1,6 @@
+[algorithm]
+name = "grpo"            # 算法名称（用于注册表查找：ppo | grpo）
+
 [ppo]
 learning_rate = 0.001
 gamma = 0.99
@@ -59,7 +62,15 @@ eval_episodes = 10
 # 例如: resume_from = "artifacts/multi_map/checkpoints/20260429_120000/checkpoint_5000.pt"
 # 或者: resume_from = "artifacts/multi_map/checkpoints/20260429_120000"  (自动选择最新的)
 # 留空 / 注释掉 = 从头开始训练
-# resume_from = ""
+# resume_from = "D:\ProgrammeProject\vaccumRobot\artifacts\multi_map\checkpoints\20260429_215913"
+
+[grpo]
+# GRPO 专用参数（仅 algorithm.name = "grpo" 时生效）
+branch_window = 200    # 每条分支 rollout 步数（默认根据 gamma 自动计算）
+branch_interval = 30   # 主轨迹中每隔多少步做一次组更新
+num_candidates = 4     # 候选动作数（K）
+kl_coef = 0.1          # KL 散度惩罚系数
+action_prob_threshold = 0.01  # 候选动作最低概率阈值
 
 [dashboard]
 enabled = true

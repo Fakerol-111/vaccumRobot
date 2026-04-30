@@ -1,3 +1,8 @@
+"""PPO-specific data structures and GAE computation.
+
+These are internal to PPO and not exposed through the Algorithm interface.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

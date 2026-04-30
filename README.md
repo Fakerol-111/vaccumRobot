@@ -7,14 +7,14 @@
 ## 项目结构
 
 ```
-vaccumRobot/
-├── agent/                    # 智能体核心
-│   ├── agent.py              # Agent：封装模型、优化器、前向/训练接口
-│   ├── algorithm.py          # PPO 算法实现（clip 损失、GAE）
-│   ├── model.py              # ActorCritic 双流网络（CNN 地图编码 + MLP 向量编码）
+vacuumRobot/
+├── agent/                    # 强化学习算法层
+│   ├── base.py               # Algorithm 抽象基类 + ActResult / LossInfo
+│   ├── registry.py           # 算法注册表（register / get / list_available）
+│   ├── common/               # 共享组件（Checkpoint、网络构建单元）
+│   ├── nn/                   # 网络架构（ActorCritic 双流网络）
+│   ├── ppo/                  # PPO 算法实现（PPOAlgorithm, RolloutBatch, GAE）
 │   ├── preprocessor.py       # 特征工程 + 奖励函数
-│   ├── checkpoint.py         # Checkpoint 数据类（含 RNG 状态、配置快照）
-│   ├── definition.py         # RolloutBatch 数据类 + GAE 计算函数
 │
 ├── core/                     # 运行框架
 │   ├── trainer.py            # Trainer 类（训练主循环、课程学习、断点续训）
