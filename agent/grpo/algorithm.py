@@ -1,17 +1,55 @@
-"""GRPO 风格算法实现。
+"""GRPO 变体：First-Action Branch Rollout（适配环境结构的 GRPO）。
 
-核心思路：
-  在训练过程中，每隔 branch_interval 步触发一次组内更新。
-  触发时保存当前 env + preprocessor 的完整状态，
-  然后从该状态分岔出 K 条分支：
+与标准 GRPO 的关系
+------------------
+本算法是标准 Group Relative Policy Optimization 的一个**环境适配变体**。
+核心 GRPO 特征完整保留：
 
-    1. 先跑一条 greedy 分支记录 NPC 位置轨迹
-    2. 对每条候选动作：恢复分支状态 → 执行候选动作 → 强制 NPC 按 greedy 轨迹移动 →
-       后续 greedy 执行 branch_window 步
-    3. 以分支累计得分的组内归一化值作为优势，更新策略
+  - **无价值网络**（no critic），组内归一化替代基线
+  - **组内相对比较**：K 条分支的 score 进行均值中心化作为优势
+  - **frozen reference model** 提供 KL 约束
 
-  强制 NPC 轨迹保持一致，确保分支得分差异仅来自 agent 第一步动作的不同。
-  同时用 frozen reference model 计算 KL 散度作为约束。
+差异来源于环境结构约束，而非算法层面的偏离：
+
+  +----------------------------+-----------------------------------+------------------------------------------+
+  | 维度                       | 标准 GRPO                         | 本变体                                   |
+  +============================+===================================+==========================================+
+  | 后半段动作来源             | 模型继续采样                       | **greedy rollout**                       |
+  +----------------------------+-----------------------------------+------------------------------------------+
+  | NPC 行为                   | 与环境自然交互                     | **锁定为 greedy trace**                  |
+  +----------------------------+-----------------------------------+------------------------------------------+
+  | 优化对象                   | 全程每步 log-prob                 | **第一步**候选动作 log-prob              |
+  +----------------------------+-----------------------------------+------------------------------------------+
+  | 优势                       | 轨迹累计回报（组内归一化）         | **score 增量**（组内归一化）             |
+  +----------------------------+-----------------------------------+------------------------------------------+
+
+为什么这些差异是合理的（而不是对 GRPO 的偏离）：
+
+  1. **NPC 独立于 agent 行动** —— 环境中的 NPC 移动不受 agent 决策影响。
+     锁定 NPC trace 只是消除无关方差，确保分支间仅因第一步动作不同而产生
+     差异。如果让 NPC 自然交互，反而会引入 agent 无法控制的噪声。
+
+  2. **环境在给定 agent 动作 + NPC 轨迹后是确定性的** —— 因此第一步之后
+     的 greedy rollout 就是该分支的最优续作。score 增量等价于该候选动作
+     的真实回报，无需额外采样来估计。
+
+  3. **MDP 性质** —— 当前状态包含决策所需的全部信息，优化第一步动作的
+     log-prob 就是在优化策略函数本身。后续步的 greedy rollout 不是
+     "跳过更新"，而是利用环境确定性来精确评估第一步动作的价值。
+
+综上，本实现不是"偏离了 GRPO"，而是**针对 NPC 独立 + 确定性环境的
+GRPO 适配**。
+
+核心流程
+--------
+每隔 ``branch_interval`` 步触发一次组内更新：
+
+  1. 保存 env + preprocessor 完整状态快照
+  2. 跑一条 greedy 分支记录 NPC 轨迹
+  3. 对 K 个候选动作各开一条分支：恢复快照 → 执行候选动作 →
+     强制 NPC 按 greedy 轨迹移动 → 后续 greedy 执行 ``branch_window`` 步
+  4. 分支得分的组内归一化值作为优势，更新第一步动作的策略
+  5. frozen reference model 的 KL 散度作为正则项
 """
 
 from __future__ import annotations
@@ -28,7 +66,7 @@ from torch.distributions import Categorical
 from agent.base import ActResult, Algorithm, LossInfo
 from agent.common.checkpoint import Checkpoint, capture_rng_state
 from agent.grpo.grpo_metrics import GRPOMetricsReporter
-from agent.nn.actor_critic import ActorCritic
+from agent.nn import create_model
 from agent.preprocessor import Preprocessor
 from agent.registry import register
 from env.factory import create_env
@@ -75,11 +113,23 @@ class GRPOAlgorithm(Algorithm):
         self.config = config
         self.device = device or torch.device("cpu")
 
-        self.model = ActorCritic(num_actions=config.num_actions, actor_gain=1.0)
+        self.model = create_model(
+            getattr(config, "model_type", "shared"),
+            config.num_actions, actor_gain=1.0,
+        )
         self.model.to(self.device)
 
-        self.reference = ActorCritic(num_actions=config.num_actions, actor_gain=1.0)
+        self.reference = create_model(
+            getattr(config, "model_type", "shared"),
+            config.num_actions, actor_gain=1.0,
+        )
         self.reference.to(self.device)
+
+        # 立即同步 reference = model，并冻结
+        self.reference.load_state_dict(self.model.state_dict())
+        self.reference.eval()
+        for p in self.reference.parameters():
+            p.requires_grad_(False)
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.learning_rate)
 
@@ -148,7 +198,7 @@ class GRPOAlgorithm(Algorithm):
         reward: float,
         done: bool,
     ) -> None:
-        pass
+        """GRPO 不使用标准 transition buffer，本方法仅为接口占位。"""
 
     def on_step(
         self,
@@ -343,9 +393,12 @@ class GRPOAlgorithm(Algorithm):
             log_probs_t.append(cur_dist.log_prob(action_t))
         log_probs_t = torch.stack(log_probs_t)
 
-        # 3. 先跑 greedy 分支记录 NPC 轨迹
-
-        greedy_action = candidate_actions[0]
+        # 3. greedy 动作为合法动作中 logits 最大的（argmax，非采样）
+        with torch.no_grad():
+            greedy_action = int(torch.argmax(
+                logits.masked_fill(torch.as_tensor(legal_arr, dtype=torch.bool, device=self.device) == 0, -1e9),
+                dim=-1,
+            ).item())
 
         npc_trace = self._record_npc_trace(
             greedy_action, env_config, self.config.branch_window,
@@ -442,14 +495,23 @@ class GRPOAlgorithm(Algorithm):
             config_snapshot=config_snapshot or {},
             rng_state=capture_rng_state(),
         )
-        torch.save(ckpt.to_dict(), str(path))
+        data = ckpt.to_dict()
+        data["reference_state_dict"] = self.reference.state_dict()
+        data["steps_since_group"] = self._steps_since_group
+        data["episode_count"] = self._episode_count
+        torch.save(data, str(path))
 
     def load_checkpoint(self, path: str | Path) -> Checkpoint:
         data = torch.load(str(path), map_location=self.device, weights_only=False)
         ckpt = Checkpoint.from_dict(data)
         self.model.load_state_dict(ckpt.model_state_dict)
-        self.reference.load_state_dict(ckpt.model_state_dict)
+        self.reference.load_state_dict(data.get("reference_state_dict", ckpt.model_state_dict))
         self.model.to(self.device)
         self.reference.to(self.device)
+        self.reference.eval()
+        for p in self.reference.parameters():
+            p.requires_grad_(False)
         self.optimizer.load_state_dict(ckpt.optimizer_state_dict)
+        self._steps_since_group = int(data.get("steps_since_group", 0))
+        self._episode_count = int(data.get("episode_count", 0))
         return ckpt

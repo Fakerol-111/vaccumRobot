@@ -11,7 +11,7 @@ from torch.distributions import Categorical
 
 from agent.base import ActResult, Algorithm, LossInfo
 from agent.common.checkpoint import Checkpoint, capture_rng_state
-from agent.nn.actor_critic import ActorCritic
+from agent.nn import create_model
 from agent.ppo.batch import RolloutBatch, compute_gae
 from agent.ppo.buffer import RolloutBuffer
 from agent.ppo.ppo_metrics import PPOMetricsReporter
@@ -39,7 +39,10 @@ class PPOAlgorithm(Algorithm):
         self.config = config
         self.device = device or torch.device("cpu")
 
-        self.model = ActorCritic(num_actions=config.num_actions)
+        self.model = create_model(
+            getattr(config, "model_type", "shared"),
+            config.num_actions,
+        )
         self.model.to(self.device)
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=config.learning_rate)
@@ -92,7 +95,9 @@ class PPOAlgorithm(Algorithm):
         logits, value, dist = self._run_model(map_img, vector, legal_mask)
         action = dist.sample()
         log_prob = dist.log_prob(action)
-        return ActResult(action=action.item(), log_prob=log_prob.item(), value=value.item())
+        return ActResult(
+            action=action.item(), log_prob=log_prob.item(), value=value.item()
+        )
 
     def exploit(
         self,
@@ -103,7 +108,9 @@ class PPOAlgorithm(Algorithm):
         logits, value, dist = self._run_model(map_img, vector, legal_mask)
         action = torch.argmax(logits, dim=-1)
         log_prob = dist.log_prob(action)
-        return ActResult(action=action.item(), log_prob=log_prob.item(), value=value.item())
+        return ActResult(
+            action=action.item(), log_prob=log_prob.item(), value=value.item()
+        )
 
     def collect(
         self,
@@ -116,7 +123,9 @@ class PPOAlgorithm(Algorithm):
         reward: float,
         done: bool,
     ) -> None:
-        self._buffer.append(map_img, vector, legal_mask, action, log_prob, value, reward, done)
+        self._buffer.append(
+            map_img, vector, legal_mask, action, log_prob, value, reward, done
+        )
 
     def on_step(
         self,
@@ -129,7 +138,9 @@ class PPOAlgorithm(Algorithm):
         reward: float,
         done: bool,
     ) -> LossInfo | None:
-        self._buffer.append(map_img, vector, legal_mask, action, log_prob, value, reward, done)
+        self._buffer.append(
+            map_img, vector, legal_mask, action, log_prob, value, reward, done
+        )
         return None
 
     def maybe_update(self, bootstrap_state: tuple | None = None) -> LossInfo | None:
@@ -148,8 +159,12 @@ class PPOAlgorithm(Algorithm):
             bootstrap = 0.0
 
         advantages, returns = compute_gae(
-            rewards, values, dones,
-            self.config.gamma, self.config.gae_lambda, bootstrap,
+            rewards,
+            values,
+            dones,
+            self.config.gamma,
+            self.config.gae_lambda,
+            bootstrap,
         )
 
         rollout = self._buffer.to_batch(advantages, returns)
@@ -158,7 +173,10 @@ class PPOAlgorithm(Algorithm):
 
         self.model.train()
         epoch_losses: dict[str, list[float]] = {
-            "policy_loss": [], "value_loss": [], "entropy": [], "total_loss": [],
+            "policy_loss": [],
+            "value_loss": [],
+            "entropy": [],
+            "total_loss": [],
         }
         for _ in range(self.config.ppo_epochs):
             batches = _prepare_batches(rollout, self.config.mini_batch_size)
@@ -188,8 +206,12 @@ class PPOAlgorithm(Algorithm):
         dones = np.array(self._buffer.dones, dtype=np.int8)
 
         advantages, returns = compute_gae(
-            rewards, values, dones,
-            self.config.gamma, self.config.gae_lambda, bootstrap_value,
+            rewards,
+            values,
+            dones,
+            self.config.gamma,
+            self.config.gae_lambda,
+            bootstrap_value,
         )
 
         rollout = self._buffer.to_batch(advantages, returns)
@@ -198,7 +220,10 @@ class PPOAlgorithm(Algorithm):
 
         self.model.train()
         epoch_losses: dict[str, list[float]] = {
-            "policy_loss": [], "value_loss": [], "entropy": [], "total_loss": [],
+            "policy_loss": [],
+            "value_loss": [],
+            "entropy": [],
+            "total_loss": [],
         }
         for _ in range(self.config.ppo_epochs):
             batches = _prepare_batches(rollout, self.config.mini_batch_size)
@@ -219,7 +244,9 @@ class PPOAlgorithm(Algorithm):
         self._metrics_reporter.record_update(loss_info)
         return loss_info
 
-    def compute_value(self, map_img: np.ndarray, vector: np.ndarray, legal_mask: np.ndarray) -> float:
+    def compute_value(
+        self, map_img: np.ndarray, vector: np.ndarray, legal_mask: np.ndarray
+    ) -> float:
         map_img_t, vector_t, legal_t = self._to_tensor(map_img, vector, legal_mask)
         with torch.no_grad():
             _, value = self.model(map_img_t, vector_t, legal_t)
@@ -259,7 +286,7 @@ class PPOAlgorithm(Algorithm):
         torch.save(ckpt.to_dict(), str(path))
 
     def load_checkpoint(self, path: str | Path) -> Checkpoint:
-        data = torch.load(str(path), map_location=self.device, weights_only=True)
+        data = torch.load(str(path), map_location=self.device, weights_only=False)
         ckpt = Checkpoint.from_dict(data)
         self.model.load_state_dict(ckpt.model_state_dict)
         self.model.to(self.device)

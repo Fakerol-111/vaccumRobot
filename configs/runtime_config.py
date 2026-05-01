@@ -12,6 +12,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # ── 默认路径 ───────────────────────────────────────────
 
+
 def get_default_train_config_path() -> Path:
     return _PROJECT_ROOT / "configs" / "train_config.toml"
 
@@ -22,6 +23,7 @@ def get_default_test_config_path() -> Path:
 
 # ── 底层 TOML 读取 ─────────────────────────────────────
 
+
 def _load_toml(path: Path | None) -> dict[str, Any]:
     if path is None:
         path = get_default_train_config_path()
@@ -30,6 +32,7 @@ def _load_toml(path: Path | None) -> dict[str, Any]:
 
 
 # ── 各节解析（内部） ───────────────────────────────────
+
 
 def _parse_ppo(raw: dict[str, Any]) -> SimpleNamespace:
     ppo = raw["ppo"]
@@ -77,13 +80,15 @@ def _parse_curriculum(raw: dict[str, Any]) -> dict[str, Any]:
         station_count = int(s.get("station_count", 4))
         stage_steps = int(s.get("total_steps", 0))
         cumulative += stage_steps
-        stages.append({
-            "name": name,
-            "maps": maps,
-            "npc_count": npc_count,
-            "station_count": station_count,
-            "total_steps": cumulative,
-        })
+        stages.append(
+            {
+                "name": name,
+                "maps": maps,
+                "npc_count": npc_count,
+                "station_count": station_count,
+                "total_steps": cumulative,
+            }
+        )
     return {"enabled": enabled, "stages": stages}
 
 
@@ -117,7 +122,99 @@ def _parse_algorithm(raw: dict[str, Any]) -> dict[str, Any]:
     algo = raw.get("algorithm", {})
     return {
         "name": algo.get("name", "ppo"),
+        "model_type": algo.get("model_type", "shared"),
     }
+
+
+def _parse_a2c(raw: dict[str, Any]) -> SimpleNamespace:
+    r = raw.get("a2c", {})
+    return SimpleNamespace(
+        learning_rate=float(r.get("learning_rate", 1e-3)),
+        gamma=float(r.get("gamma", 0.99)),
+        n_step=int(r.get("n_step", 8)),
+        value_coef=float(r.get("value_coef", 0.5)),
+        entropy_coef=float(r.get("entropy_coef", 0.01)),
+        max_grad_norm=float(r.get("max_grad_norm", 0.5)),
+        batch_size=int(r.get("batch_size", 256)),
+        normalize_advantage=bool(r.get("normalize_advantage", True)),
+        total_timesteps=int(r.get("total_timesteps", 10_000)),
+        save_interval=int(r.get("save_interval", 5_000)),
+        save_time_interval=float(r.get("save_time_interval", 0)),
+        log_interval=int(r.get("log_interval", 500)),
+        max_npcs=int(r.get("max_npcs", 5)),
+        local_view_size=int(r.get("local_view_size", 21)),
+        num_actions=int(r.get("num_actions", 8)),
+    )
+
+
+def _parse_ppo_kl(raw: dict[str, Any]) -> SimpleNamespace:
+    r = raw.get("ppo_kl", {})
+    return SimpleNamespace(
+        learning_rate=float(r.get("learning_rate", 3e-4)),
+        gamma=float(r.get("gamma", 0.99)),
+        gae_lambda=float(r.get("gae_lambda", 0.95)),
+        clip_epsilon=float(r.get("clip_epsilon", 0.2)),
+        value_coef=float(r.get("value_coef", 0.5)),
+        entropy_coef=float(r.get("entropy_coef", 0.01)),
+        max_grad_norm=float(r.get("max_grad_norm", 0.5)),
+        ppo_epochs=int(r.get("ppo_epochs", 4)),
+        batch_size=int(r.get("batch_size", 256)),
+        mini_batch_size=int(r.get("mini_batch_size", 64)),
+        target_kl=float(r.get("target_kl", 0.01)),
+        kl_beta=float(r.get("kl_beta", 1.0)),
+        kl_adaptive=bool(r.get("kl_adaptive", True)),
+        total_timesteps=int(r.get("total_timesteps", 10_000)),
+        save_interval=int(r.get("save_interval", 5_000)),
+        save_time_interval=float(r.get("save_time_interval", 0)),
+        log_interval=int(r.get("log_interval", 500)),
+        max_npcs=int(r.get("max_npcs", 5)),
+        local_view_size=int(r.get("local_view_size", 21)),
+        num_actions=int(r.get("num_actions", 8)),
+    )
+
+
+def _parse_reinforce(raw: dict[str, Any]) -> SimpleNamespace:
+    r = raw.get("reinforce", {})
+    return SimpleNamespace(
+        learning_rate=float(r.get("learning_rate", 1e-3)),
+        gamma=float(r.get("gamma", 0.99)),
+        value_coef=float(r.get("value_coef", 0.5)),
+        entropy_coef=float(r.get("entropy_coef", 0.01)),
+        max_grad_norm=float(r.get("max_grad_norm", 0.5)),
+        batch_size=int(r.get("batch_size", 512)),
+        normalize_advantage=bool(r.get("normalize_advantage", True)),
+        total_timesteps=int(r.get("total_timesteps", 10_000)),
+        save_interval=int(r.get("save_interval", 5_000)),
+        save_time_interval=float(r.get("save_time_interval", 0)),
+        log_interval=int(r.get("log_interval", 500)),
+        max_npcs=int(r.get("max_npcs", 5)),
+        local_view_size=int(r.get("local_view_size", 21)),
+        num_actions=int(r.get("num_actions", 8)),
+    )
+
+
+def _parse_trpo(raw: dict[str, Any]) -> SimpleNamespace:
+    r = raw.get("trpo", {})
+    return SimpleNamespace(
+        learning_rate=float(r.get("learning_rate", 1e-3)),
+        gamma=float(r.get("gamma", 0.99)),
+        gae_lambda=float(r.get("gae_lambda", 0.95)),
+        max_kl=float(r.get("max_kl", 0.01)),
+        cg_damping=float(r.get("cg_damping", 0.1)),
+        cg_iterations=int(r.get("cg_iterations", 10)),
+        line_search_steps=int(r.get("line_search_steps", 10)),
+        value_epochs=int(r.get("value_epochs", 5)),
+        value_mini_batch_size=int(r.get("value_mini_batch_size", 64)),
+        max_grad_norm=float(r.get("max_grad_norm", 0.5)),
+        batch_size=int(r.get("batch_size", 256)),
+        total_timesteps=int(r.get("total_timesteps", 10_000)),
+        save_interval=int(r.get("save_interval", 5_000)),
+        save_time_interval=float(r.get("save_time_interval", 0)),
+        log_interval=int(r.get("log_interval", 500)),
+        max_npcs=int(r.get("max_npcs", 5)),
+        local_view_size=int(r.get("local_view_size", 21)),
+        num_actions=int(r.get("num_actions", 8)),
+    )
 
 
 def _parse_grpo(raw: dict[str, Any]) -> SimpleNamespace:
@@ -138,11 +235,13 @@ def _parse_grpo(raw: dict[str, Any]) -> SimpleNamespace:
         branch_interval=int(grpo.get("branch_interval", 30)),
         num_candidates=int(grpo.get("num_candidates", 4)),
         kl_coef=float(grpo.get("kl_coef", 0.1)),
-        action_prob_threshold=float(grpo.get("action_prob_threshold", 0.01)),
+        entropy_coef=float(grpo.get("entropy_coef", 0.01)),
+        ref_sync=grpo.get("ref_sync", "episode"),
     )
 
 
 # ── 公开接口 ───────────────────────────────────────────
+
 
 def load_train_config_bundle(path: Path | None = None) -> SimpleNamespace:
     """加载训练配置（train_config.toml），返回包含所有配置节的 bundle。
@@ -162,11 +261,17 @@ def load_train_config_bundle(path: Path | None = None) -> SimpleNamespace:
     """
     resolved = path if path is not None else get_default_train_config_path()
     raw = _load_toml(resolved)
+    algo_cfg = _parse_algorithm(raw)
+    model_type = algo_cfg["model_type"]
 
-    return SimpleNamespace(
-        algo=_parse_algorithm(raw),
+    bundle = SimpleNamespace(
+        algo=algo_cfg,
+        a2c=_parse_a2c(raw),
         ppo=_parse_ppo(raw),
+        ppo_kl=_parse_ppo_kl(raw),
+        trpo=_parse_trpo(raw),
         grpo=_parse_grpo(raw),
+        reinforce=_parse_reinforce(raw),
         env=_parse_env(raw),
         curriculum=_parse_curriculum(raw),
         training=_parse_training(raw),
@@ -175,6 +280,14 @@ def load_train_config_bundle(path: Path | None = None) -> SimpleNamespace:
         metrics=_parse_metrics(raw),
         config_path=resolved,
     )
+
+    # 将全局 model_type 注入所有算法 config
+    for algo_name in ("a2c", "ppo", "ppo_kl", "trpo", "grpo", "reinforce"):
+        algo_cfg_obj = getattr(bundle, algo_name, None)
+        if algo_cfg_obj is not None:
+            algo_cfg_obj.model_type = model_type
+
+    return bundle
 
 
 def load_test_config_bundle(path: Path | None = None) -> dict[str, Any]:
@@ -211,6 +324,7 @@ def load_test_config_bundle(path: Path | None = None) -> dict[str, Any]:
 
 # ── 兼容性导出（保持原有函数名可用） ─────────────────
 
+
 def load_ppo_config(config_path: Path | None = None) -> SimpleNamespace:
     return load_train_config_bundle(config_path).ppo
 
@@ -232,6 +346,7 @@ def load_test_config(config_path: Path | None = None) -> dict[str, Any]:
 
 
 # ── 工具函数 ───────────────────────────────────────────
+
 
 def build_multi_env_configs(
     map_ids: list[int],

@@ -42,6 +42,7 @@ class EvalRequest:
     algo_config: SimpleNamespace
     env_config: dict[str, Any]
     artifacts_root: Path
+    algo_name: str = "ppo"
 
 
 # ── Context objects ─────────────────────────────────────
