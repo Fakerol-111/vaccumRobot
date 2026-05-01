@@ -10,18 +10,31 @@ agent/
 │   ├── checkpoint.py       # Checkpoint 数据类、RNG 快照、config_snapshot 构建
 │   └── functional.py       # 网络构建单元 make_fc / make_conv
 ├── nn/                     # 网络架构
-│   └── actor_critic.py     # Actor-Critic 双流网络（CNN + MLP）
-├── ppo/                    # PPO 算法实现
-│   ├── algorithm.py        # PPOAlgorithm，@register("ppo")，on_step/maybe_update
-│   ├── ppo_metrics.py      # PPO 监控指标（Policy Loss, Value Loss, Entropy）
+│   ├── actor_critic.py     # Actor-Critic 双流网络（CNN + MLP，共享编码器）
+│   ├── separate_ac.py      # SeparateActorCritic（独立编码器，TRPO 必须）
+│   └── factory.py          # create_model(model_type, ...) 工厂函数
+├── preprocessor.py         # 环境特征工程（领域相关，算法无关）
+├── a2c/                    # A2C 算法
+│   ├── algorithm.py        # @register("a2c")，n-step return
+│   └── a2c_metrics.py      # 监控指标
+├── ppo/                    # PPO 算法
+│   ├── algorithm.py        # @register("ppo")，on_step/maybe_update
+│   ├── ppo_metrics.py      # 监控指标
 │   ├── buffer.py           # RolloutBuffer（变长 episode 缓冲）
 │   ├── batch.py            # RolloutBatch 数据类 + GAE 计算
 │   └── update.py           # PPO 更新核心（clip 目标、值裁剪、熵）
-├── grpo/                   # GRPO 算法实现
-│   ├── algorithm.py        # GRPOAlgorithm，@register("grpo")，分支 rollout + 组内归一化
-│   └── grpo_metrics.py     # GRPO 监控指标（Mean Score, Std Score, KL）
-├── preprocessor.py         # 环境特征工程（领域相关，算法无关）
-└── README.md
+├── ppo_kl/                 # PPO-KL 算法
+│   ├── algorithm.py        # @register("ppo_kl")，KL 自适应惩罚，无 clip
+│   └── ppo_kl_metrics.py   # 监控指标（含 KL Beta）
+├── reinforce/              # REINFORCE 算法
+│   ├── algorithm.py        # @register("reinforce")，纯蒙特卡洛
+│   └── reinforce_metrics.py# 监控指标
+├── trpo/                   # TRPO 算法
+│   ├── algorithm.py        # @register("trpo")，共轭梯度 + 线搜索
+│   └── trpo_metrics.py     # 监控指标（Surrogate, KL, Step）
+└── grpo/                   # GRPO 算法
+    ├── algorithm.py        # @register("grpo")，分支 rollout + 组内归一化
+    └── grpo_metrics.py     # 监控指标（Mean Score, Std Score, KL）
 ```
 
 ## 如何添加新算法
@@ -46,19 +59,25 @@ agent/dqn/
 
 | 方法 | 用途 |
 |---|---|
-| `act(map_img, vector, legal_mask, deterministic)` | 选择动作 |
+| `act(map_img, vector, legal_mask, mode)` | 统一入口，`mode="explore"` 或 `"exploit"` |
 | `explore(map_img, vector, legal_mask)` | 随机采样（训练） |
 | `exploit(map_img, vector, legal_mask)` | 贪婪选择（评估） |
-| `collect(map_img, vector, legal_mask, action, log_prob, value, reward, done)` | 存入内部 buffer |
-| `on_step(map_img, vector, ..., done)` | 每步回调（默认调用 collect，可重写） |
+| `collect(map_img, vector, ..., done)` | 存入内部 buffer |
 | `ready_to_update()` | buffer 是否够一次 update |
 | `update(bootstrap_value)` | 从 buffer 学习，返回 LossInfo |
-| `maybe_update(bootstrap_state)` | 按条件触发 update（默认检查 ready_to_update） |
 | `compute_value(map_img, vector, legal_mask)` | 计算状态价值（用于 bootstrapping） |
 | `save(path)` | 保存模型权重 |
 | `load(path)` | 加载模型权重 |
 | `save_checkpoint(path, global_step, ...)` | 保存完整断点（含优化器、RNG） |
 | `load_checkpoint(path)` | 加载完整断点，返回 Checkpoint |
+
+**可选覆写：**
+| 方法 | 默认行为 |
+|---|---|
+| `on_step(map_img, vector, ..., done)` | 调用 `collect()`，返回 `None` |
+| `maybe_update(bootstrap_state)` | 检查 `ready_to_update()`，调用 `update()` |
+| `set_env_config(env_config)` | 无操作（环境切换时通知算法） |
+| `metrics_reporter` | 返回 `None`（各算法实现自己的监控指标） |
 
 **3. 注册算法**
 
@@ -109,7 +128,7 @@ algorithm = algo_cls(req.algo_config, device)
 
 ```python
 algo_name = cfg.algo["name"]
-algo_config = getattr(cfg, algo_name, None)  # → cfg.ppo 或 cfg.grpo
+algo_config = getattr(cfg, algo_name, None)  # → cfg.ppo / cfg.grpo / cfg.trpo ...
 ```
 
 ### 可复用的共享组件
@@ -120,7 +139,9 @@ algo_config = getattr(cfg, algo_name, None)  # → cfg.ppo 或 cfg.grpo
 | `capture_rng_state` / `restore_rng_state` | `agent/common/checkpoint.py` | RNG 快照工具 |
 | `build_config_snapshot(config, extra)` | `agent/common/checkpoint.py` | 从 config 提取超参快照 |
 | `make_fc` / `make_conv` | `agent/common/functional.py` | 正交初始化网络层工厂 |
-| `ActorCritic` | `agent/nn/actor_critic.py` | 双流网络（可重用或作为参考） |
+| `ActorCritic` | `agent/nn/actor_critic.py` | 共享编码器双流网络 |
+| `SeparateActorCritic` | `agent/nn/separate_ac.py` | 独立编码器双流网络（TRPO 必须） |
+| `create_model(type, ...)` | `agent/nn/factory.py` | 工厂函数，按 `model_type` 创建 |
 | `Preprocessor` | `agent/preprocessor.py` | 环境特征工程（完全共享，无需修改） |
 
 ### 应保留在算法内部的组件
@@ -134,4 +155,4 @@ algo_config = getattr(cfg, algo_name, None)  # → cfg.ppo 或 cfg.grpo
 
 `core/trainer.py` 已通过 `Algorithm` 接口与具体算法解耦。新算法只要实现了该接口，无需修改 Trainer 即可适配。特殊需求（如 off-policy 的不同 `ready_to_update` 逻辑）通过算法自身的 `collect()` 和 `ready_to_update()` 实现差异。
 
-评估入口 `core/evaluator.py` 同理，通过 `Algorithm` 接口统一调用 `act()` 进行推理。
+评估入口 `core/evaluator_runner.py` 同理，通过 registry 获取算法类并调用 `Algorithm` 接口进行推理。
