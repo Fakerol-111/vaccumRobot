@@ -16,16 +16,17 @@ from agent.registry import register, list_available
 
 class _DummyAlgo:
     """Not a real Algorithm subclass — only needed to populate registry."""
+
     pass
 
 
 class TestConfigDispatch(unittest.TestCase):
     """Test the dispatch pattern used in scripts/train.py main():
 
-        algo_name = cfg.algo["name"]
-        if algo_name not in list_available():
-            raise ValueError(...)
-        algo_config = getattr(cfg, algo_name, None)
+    algo_name = cfg.algo["name"]
+    if algo_name not in list_available():
+        raise ValueError(...)
+    algo_config = getattr(cfg, algo_name, None)
     """
 
     @classmethod
@@ -97,6 +98,76 @@ class TestConfigDispatch(unittest.TestCase):
         algo_config = getattr(cfg, algo_name, None)
         self.assertIsNotNone(algo_config)
         self.assertEqual(algo_config.batch_size, 512)
+
+
+class TestEvalDispatchChain(unittest.TestCase):
+    """Test the eval dispatch chain: algo_name → config → registry lookup.
+
+    This mirrors the pattern in scripts/eval.py and core/evaluator_runner.py.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from agent.registry import register as _register
+        from agent.base import Algorithm
+
+        class _DummyEvalAlgo(Algorithm):
+            def __init__(self, config=None, device=None):
+                self.config = config
+                self.device = device
+
+            def explore(self, *args, **kwargs): ...
+            def exploit(self, *args, **kwargs): ...
+            def collect(self, *args, **kwargs): ...
+            def on_step(self, *args, **kwargs): ...
+            def ready_to_update(self):
+                return False
+
+            def update(self, **kwargs): ...
+            def compute_value(self, *args):
+                return 0.0
+
+            def save(self, path): ...
+            def load(self, path): ...
+            @property
+            def metrics_reporter(self): ...
+
+            def load_checkpoint(self, path): ...
+            def save_checkpoint(self, path, **kwargs): ...
+
+        cls.algo_cls = _register("eval_test_dummy")(_DummyEvalAlgo)
+
+    def test_registry_get_by_name(self):
+        from agent.registry import get as get_algo
+
+        cls = get_algo("eval_test_dummy")
+        self.assertIs(cls, self.algo_cls)
+
+    def test_unknown_algo_raises(self):
+        from agent.registry import get as get_algo
+
+        with self.assertRaises(ValueError):
+            get_algo("nonexistent_algo")
+
+    def test_eval_flow_simulated(self):
+        """Simulate the full eval.py + evaluator_runner.py flow."""
+        from agent.registry import get as get_algo
+        from types import SimpleNamespace
+
+        train_cfg = SimpleNamespace(
+            algo={"name": "eval_test_dummy"},
+            eval_test_dummy=SimpleNamespace(num_actions=8, learning_rate=0.001),
+        )
+
+        # Step 1: resolve algo name and config (eval.py)
+        algo_name = train_cfg.algo["name"]
+        algo_config = getattr(train_cfg, algo_name, None)
+        self.assertIsNotNone(algo_config)
+
+        # Step 2: registry lookup + instantiation (evaluator_runner.py)
+        algo_cls = get_algo(algo_name)
+        algo = algo_cls(algo_config, device="cpu")
+        self.assertIsInstance(algo, self.algo_cls)
 
 
 if __name__ == "__main__":

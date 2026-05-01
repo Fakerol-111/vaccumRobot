@@ -39,6 +39,14 @@ def main(config_path: Path | None = None):
     test_cfg = load_test_config_bundle(config_path)
     train_cfg = load_train_config_bundle()
 
+    algo_name = train_cfg.algo["name"]
+    algo_config = getattr(train_cfg, algo_name, None)
+    if algo_config is not None and algo_name == "trpo" and algo_config.model_type != "separate":
+        raise ValueError(
+            "TRPO 必须使用分离的 actor-critic 网络，请在配置中设置 "
+            "[algorithm]\n  model_type = \"separate\""
+        )
+
     req = EvalRequest(
         map_ids=test_cfg["maps"],
         num_episodes=test_cfg["episodes"],
@@ -48,7 +56,8 @@ def main(config_path: Path | None = None):
         step=test_cfg["step"],
         gif_fps=test_cfg["gif_fps"],
         output_dir=Path(test_cfg["output_dir"]) if test_cfg["output_dir"] else None,
-        algo_config=train_cfg.ppo,
+        algo_config=algo_config or train_cfg.ppo,
+        algo_name=algo_name,
         env_config=train_cfg.env,
         artifacts_root=PROJECT_ROOT / train_cfg.training["artifacts_dir"],
     )

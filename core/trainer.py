@@ -364,7 +364,9 @@ class Trainer:
             else:
                 info_lines.append(f"max_grad_norm={c.max_grad_norm}")
             if hasattr(c, "gae_lambda"):
-                info_lines.append(f"batch={c.batch_size}  mini_batch={c.mini_batch_size}  epochs={c.ppo_epochs}")
+                mini_batch = getattr(c, "mini_batch_size", None) or getattr(c, "value_mini_batch_size", "N/A")
+                epochs = getattr(c, "ppo_epochs", None) or getattr(c, "value_epochs", "N/A")
+                info_lines.append(f"batch={c.batch_size}  mini_batch={mini_batch}  epochs={epochs}")
             info_lines.extend([
                 f"total_steps={c.total_timesteps}  save_interval={c.save_interval}  log_interval={c.log_interval}",
                 f"lr={c.learning_rate}  device={self.device}",

@@ -13,12 +13,18 @@ from configs.runtime_config import (
     load_test_config_bundle,
     build_multi_env_configs,
     _parse_ppo,
+    _parse_a2c,
+    _parse_ppo_kl,
+    _parse_reinforce,
+    _parse_trpo,
+    _parse_grpo,
     _parse_env,
     _parse_curriculum,
     _parse_dashboard,
     _parse_metrics,
     _parse_general,
     _parse_training,
+    _parse_algorithm,
     load_ppo_config,
     load_env_config,
 )
@@ -51,9 +57,17 @@ class TestLoadTrainConfigBundle(unittest.TestCase):
     def test_ppo_section(self):
         ppo = self.bundle.ppo
         self.assertIsInstance(ppo, SimpleNamespace)
-        for attr in ("learning_rate", "gamma", "gae_lambda", "clip_epsilon",
-                     "batch_size", "mini_batch_size", "total_timesteps",
-                     "save_interval", "log_interval"):
+        for attr in (
+            "learning_rate",
+            "gamma",
+            "gae_lambda",
+            "clip_epsilon",
+            "batch_size",
+            "mini_batch_size",
+            "total_timesteps",
+            "save_interval",
+            "log_interval",
+        ):
             self.assertTrue(hasattr(ppo, attr), f"ppo missing: {attr}")
 
     def test_ppo_values_are_typed(self):
@@ -120,8 +134,16 @@ class TestLoadTestConfigBundle(unittest.TestCase):
         self.assertIsInstance(self.cfg, dict)
 
     def test_has_required_keys(self):
-        for key in ("maps", "episodes", "npc_count", "station_count",
-                    "run_id", "step", "gif_fps", "output_dir"):
+        for key in (
+            "maps",
+            "episodes",
+            "npc_count",
+            "station_count",
+            "run_id",
+            "step",
+            "gif_fps",
+            "output_dir",
+        ):
             self.assertIn(key, self.cfg, f"missing key: {key}")
 
     def test_types(self):
@@ -175,6 +197,124 @@ class TestParseFunctions(unittest.TestCase):
         raw = {"training": {"artifacts_dir": "test_artifacts"}}
         t = _parse_training(raw)
         self.assertEqual(t["artifacts_dir"], "test_artifacts")
+
+
+class TestModelTypeInjection(unittest.TestCase):
+    """model_type 必须注入所有 6 个算法 config。"""
+
+    def test_model_type_injected_to_all_algos(self):
+        bundle = load_train_config_bundle()
+        model_type = bundle.algo["model_type"]
+        for name in ("a2c", "ppo", "ppo_kl", "reinforce", "trpo", "grpo"):
+            with self.subTest(algo=name):
+                algo = getattr(bundle, name, None)
+                self.assertIsNotNone(algo, f"{name} section missing")
+                self.assertTrue(
+                    hasattr(algo, "model_type"), f"{name} missing model_type"
+                )
+                self.assertEqual(algo.model_type, model_type)
+
+    def test_parse_algorithm_fields(self):
+        raw = {"algorithm": {"name": "trpo", "model_type": "separate"}}
+        algo = _parse_algorithm(raw)
+        self.assertEqual(algo["name"], "trpo")
+        self.assertEqual(algo["model_type"], "separate")
+
+    def test_parse_algorithm_defaults(self):
+        raw = {}
+        algo = _parse_algorithm(raw)
+        self.assertEqual(algo["name"], "ppo")
+        self.assertEqual(algo["model_type"], "shared")
+
+
+class TestGrpoParseFields(unittest.TestCase):
+    """GRPO 特有字段：ref_sync, entropy_coef, 以及不解析 action_prob_threshold。"""
+
+    def test_ref_sync_parsed(self):
+        raw = {"grpo": {"ref_sync": "episode"}}
+        cfg = _parse_grpo(raw)
+        self.assertEqual(cfg.ref_sync, "episode")
+
+    def test_ref_sync_default(self):
+        raw = {"grpo": {}}
+        cfg = _parse_grpo(raw)
+        self.assertEqual(cfg.ref_sync, "episode")
+
+    def test_entropy_coef_parsed(self):
+        raw = {"grpo": {"entropy_coef": 0.05}}
+        cfg = _parse_grpo(raw)
+        self.assertEqual(cfg.entropy_coef, 0.05)
+
+    def test_entropy_coef_default(self):
+        raw = {"grpo": {}}
+        cfg = _parse_grpo(raw)
+        self.assertEqual(cfg.entropy_coef, 0.01)
+
+    def test_action_prob_threshold_not_parsed(self):
+        raw = {"grpo": {"action_prob_threshold": 0.5}}
+        cfg = _parse_grpo(raw)
+        self.assertFalse(hasattr(cfg, "action_prob_threshold"))
+
+    def test_branch_window_parsed(self):
+        raw = {"grpo": {"branch_window": 50}}
+        cfg = _parse_grpo(raw)
+        self.assertEqual(cfg.branch_window, 50)
+
+    def test_num_candidates_default(self):
+        raw = {"grpo": {}}
+        cfg = _parse_grpo(raw)
+        self.assertEqual(cfg.num_candidates, 4)
+
+
+class TestTrpoParseFields(unittest.TestCase):
+    """TRPO 特有字段确认。"""
+
+    def test_max_kl_parsed(self):
+        raw = {"trpo": {"max_kl": 0.05}}
+        cfg = _parse_trpo(raw)
+        self.assertEqual(cfg.max_kl, 0.05)
+
+    def test_cg_iterations_parsed(self):
+        raw = {"trpo": {"cg_iterations": 15}}
+        cfg = _parse_trpo(raw)
+        self.assertEqual(cfg.cg_iterations, 15)
+
+    def test_line_search_steps_parsed(self):
+        raw = {"trpo": {"line_search_steps": 5}}
+        cfg = _parse_trpo(raw)
+        self.assertEqual(cfg.line_search_steps, 5)
+
+    def test_value_epochs_default(self):
+        raw = {"trpo": {}}
+        cfg = _parse_trpo(raw)
+        self.assertEqual(cfg.value_epochs, 5)
+
+    def test_model_type_not_in_trpo(self):
+        """TRPO parser 不应解析 model_type（由全局注入）。"""
+        raw = {"trpo": {"model_type": "shared", "max_kl": 0.01}}
+        cfg = _parse_trpo(raw)
+        self.assertFalse(
+            hasattr(cfg, "model_type"), "TRPO parser should not set model_type directly"
+        )
+
+
+class TestPPOKlParseFields(unittest.TestCase):
+    """PPO-KL 特有字段确认。"""
+
+    def test_target_kl_parsed(self):
+        raw = {"ppo_kl": {"target_kl": 0.02}}
+        cfg = _parse_ppo_kl(raw)
+        self.assertEqual(cfg.target_kl, 0.02)
+
+    def test_kl_adaptive_parsed(self):
+        raw = {"ppo_kl": {"kl_adaptive": False}}
+        cfg = _parse_ppo_kl(raw)
+        self.assertFalse(cfg.kl_adaptive)
+
+    def test_kl_beta_default(self):
+        raw = {"ppo_kl": {}}
+        cfg = _parse_ppo_kl(raw)
+        self.assertEqual(cfg.kl_beta, 1.0)
 
 
 class TestBuildMultiEnvConfigs(unittest.TestCase):

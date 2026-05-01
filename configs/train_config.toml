@@ -1,5 +1,6 @@
 [algorithm]
-name = "grpo"            # 算法名称（用于注册表查找：ppo | grpo），各个算法参数独立，无共用参数
+name = "trpo"            # 算法名称（用于注册表查找：ppo | grpo），各个算法参数独立，无共用参数
+model_type = "separate"  # "shared" | "separate" — 共享/分离编码器（TRPO 必须 separate）
 
 [ppo]
 learning_rate = 0.001
@@ -19,6 +20,96 @@ log_interval = 500
 max_npcs = 5
 local_view_size = 21
 num_actions = 8
+
+[a2c]
+learning_rate = 0.001
+gamma = 0.99
+n_step = 8             # n-step lookahead (1=TD(0), 大值≈MC)
+value_coef = 0.5
+entropy_coef = 0.01
+max_grad_norm = 0.5
+batch_size = 256
+normalize_advantage = true
+total_timesteps = 10_000
+save_interval = 2_000
+save_time_interval = 300
+log_interval = 500
+num_actions = 8
+local_view_size = 21
+max_npcs = 5
+
+[ppo_kl]
+learning_rate = 0.001
+gamma = 0.99
+gae_lambda = 0.95
+clip_epsilon = 0.2
+value_coef = 0.5
+entropy_coef = 0.01
+max_grad_norm = 0.5
+ppo_epochs = 4
+batch_size = 256
+mini_batch_size = 64
+target_kl = 0.01           # 目标KL散度，自适应β以此为准
+kl_beta = 1.0              # KL惩罚系数初始值
+kl_adaptive = true         # 是否自适应调整β
+total_timesteps = 10_000
+save_interval = 2_000
+save_time_interval = 300
+log_interval = 500
+num_actions = 8
+local_view_size = 21
+max_npcs = 5
+
+[reinforce]
+learning_rate = 0.001
+gamma = 0.99
+value_coef = 0.5
+entropy_coef = 0.01
+max_grad_norm = 0.5
+batch_size = 256
+normalize_advantage = true
+total_timesteps = 10_000
+save_interval = 2_000
+save_time_interval = 300
+log_interval = 500
+num_actions = 8
+local_view_size = 21
+max_npcs = 5
+
+[trpo]
+learning_rate = 0.001          # 价值网络学习率
+gamma = 0.99
+gae_lambda = 0.95
+max_kl = 0.01                  # KL 散度约束上限 δ
+cg_damping = 0.1               # CG 阻尼系数（Fisher 矩阵正则化）
+cg_iterations = 10             # 共轭梯度迭代次数
+line_search_steps = 10         # 最大回溯搜索步数
+value_epochs = 5               # 价值网络更新轮数
+value_mini_batch_size = 64     # 价值网络 mini-batch 大小
+max_grad_norm = 0.5
+batch_size = 256
+total_timesteps = 10_000
+save_interval = 2_000
+save_time_interval = 300
+log_interval = 500
+num_actions = 8
+local_view_size = 21
+max_npcs = 5
+
+[grpo]
+learning_rate = 0.0003
+max_grad_norm = 0.5
+total_timesteps = 10_000_000_000
+save_interval = 2_000          # 若save_time_interval被启用则不会使用此参数
+save_time_interval = 300       # 按时间保存（秒），0 = 禁用，300 = 每5分钟保存一次
+log_interval = 500
+num_actions = 8
+branch_window = 20   # 每条分支 rollout 步数
+branch_interval = 20   # 主轨迹中每隔多少步做一次组更新
+num_candidates = 2     # 候选动作数（K）
+kl_coef = 0.1          # KL 散度惩罚系数
+entropy_coef = 0.01   # 熵正则系数（负值推离均匀分布，打破对称性）
+ref_sync = "episode"        # reference model 同步策略: "episode" | false
 
 [general]
 seed = 42
@@ -62,22 +153,7 @@ eval_episodes = 10
 # 例如: resume_from = "artifacts/multi_map/checkpoints/20260429_120000/checkpoint_5000.pt"
 # 或者: resume_from = "artifacts/multi_map/checkpoints/20260429_120000"  (自动选择最新的)
 # 留空 / 注释掉 = 从头开始训练
-resume_from = "D:\\ProgrammeProject\\vaccumRobot\\artifacts\\multi_map\\checkpoints\\20260429_215913"
-
-[grpo]
-learning_rate = 0.0003
-max_grad_norm = 0.5
-total_timesteps = 10_000_000_000
-save_interval = 2_000          # 若save_time_interval被启用则不会使用此参数
-save_time_interval = 300       # 按时间保存（秒），0 = 禁用，300 = 每5分钟保存一次
-log_interval = 500
-num_actions = 8
-branch_window = 100   # 每条分支 rollout 步数
-branch_interval = 50   # 主轨迹中每隔多少步做一次组更新
-num_candidates = 2     # 候选动作数（K）
-kl_coef = 0.1          # KL 散度惩罚系数
-entropy_coef = 0.01   # 熵正则系数（负值推离均匀分布，打破对称性）
-ref_sync = "episode"        # reference model 同步策略: "episode" | false
+# resume_from = "D:\\ProgrammeProject\\vaccumRobot\\artifacts\\multi_map\\checkpoints\\20260429_215913"
 
 [dashboard]
 enabled = true

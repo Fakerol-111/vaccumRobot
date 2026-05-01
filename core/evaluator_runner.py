@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from agent.ppo import PPOAlgorithm
+from agent.registry import get as get_algorithm
 
 logger = logging.getLogger(__name__)
 from agent.preprocessor import Preprocessor
@@ -103,7 +103,8 @@ def run_evaluation(req: EvalRequest) -> EvalResult:
     logger.info("Output:       %s", ctx.eval_dir)
 
     device = get_device()
-    algorithm = PPOAlgorithm(req.algo_config, device)
+    algorithm_cls = get_algorithm(req.algo_name)
+    algorithm = algorithm_cls(req.algo_config, device)
     algorithm.load(ctx.model_path)
     preprocessor = Preprocessor()
 

@@ -47,8 +47,16 @@ def main(config_path: Path | None = None, resume_from: Path | str | None = None,
     if algo_name not in list_available():
         raise ValueError(f"Unknown algorithm {algo_name!r}. Available: {list_available()}")
 
+    algo_config = getattr(cfg, algo_name, None)
+
+    if algo_name == "trpo" and algo_config is not None and algo_config.model_type != "separate":
+        raise ValueError(
+            "TRPO 必须使用分离的 actor-critic 网络，请在配置中设置 "
+            "[algorithm]\n  model_type = \"separate\""
+        )
+
     req = TrainRequest(
-        algo_config=getattr(cfg, algo_name, None),
+        algo_config=algo_config,
         algo_name=algo_name,
         env_config=cfg.env,
         curriculum=cfg.curriculum,
