@@ -6,17 +6,12 @@
 configs/
 ├── maps/                          # ★ 地图数据（运行时）
 │   ├── schema.json                #   JSON Schema 定义
-│   ├── map_1.json                 #   地图 1 - 纯正方形
-│   ├── map_2.json                 #   地图 2 - 迷宫
-│   ├── map_3.json                 #   地图 3 - 四房间
-│   ├── map_4.json                 #   地图 4 - 开放散落
+│   ├── map_1.json ~ map_10.json   #   10 张内置地图
 │   └── src/                       # ★ 地图生成源码（不参与运行）
-│       ├── map_1.py
-│       ├── map_2.py
-│       ├── map_3.py
-│       └── map_4.py
+│       ├── map_1.py ~ map_10.py
 ├── train_config.toml              # 训练入口配置
 ├── test_config.toml               # 测试入口配置
+├── runtime_config.py              # 统一配置加载器（TOML → SimpleNamespace / dict）
 ├── map_loader.py                  # 运行时加载器（只读 JSON）
 └── README.md
 ```
@@ -56,12 +51,13 @@ configs/
 
 ## 内置地图
 
-| ID | 地图名 | 源文件 | 特点 |
-| -- | ---- | --- | --- |
-| 1 | simple | `maps/src/map_1.py` | 128×128 方形，边界障碍，内部全脏 |
-| 2 | maze | `maps/src/map_2.py` | 128×128 迷宫走廊，狭窄通道 |
-| 3 | rooms | `maps/src/map_3.py` | 128×128 四房间+门洞连接 |
-| 4 | open_scattered | `maps/src/map_4.py` | 128×128 无边界墙，散布随机障碍块 |
+| ID | 地图名 | 特点 |
+| -- | ------ | ---- |
+| 1 | simple | 128×128 方形，边界障碍，内部全脏 |
+| 2 | maze | 128×128 迷宫走廊，狭窄通道 |
+| 3 | rooms | 128×128 四房间+门洞连接 |
+| 4 | open_scattered | 128×128 无边界墙，散布随机障碍块 |
+| 5-10 | (自定义) | 逐步增加的多样化地图布局 |
 
 ---
 
@@ -130,6 +126,17 @@ seed = 42               # 全局随机种子，保证训练可复现
 
 训练启动时统一设置 `random` / `numpy` / `torch` 种子。每个 episode 的 `GridWorldEnv.reset(seed=episode_seed)` 使用 `base_seed + episode_index` 规则计算，确保按相同配置重新运行时能获得完全一致的训练轨迹。
 
+### `[algorithm]` — 算法选择 & 模型架构
+
+```toml
+[algorithm]
+name = "ppo"              # 算法名称：a2c / ppo / ppo_kl / reinforce / trpo / grpo
+model_type = "shared"     # "shared"（共享编码器）或 "separate"（分离编码器）
+```
+
+- `model_type = "shared"`：Actor 和 Critic 共享 CNN+MLP 编码器，输出层分开
+- `model_type = "separate"`：Actor 和 Critic 使用独立的编码器（TRPO 必须使用此模式）
+
 ### `[env]` — 多地图训练参数
 
 ```toml
@@ -154,14 +161,14 @@ station_count = 1
 total_steps = 300_000               # 累计步数阈值
 
 [[curriculum.stage]]
-name = "medium"
+name = "medium_npc_maze"
 maps = [1, 2]
 npc_count = 1
 station_count = 2
 total_steps = 1_000_000
 
 [[curriculum.stage]]
-name = "hard"
+name = "hard_all_maps"
 maps = [1, 2, 3, 4]
 npc_count = 1
 station_count = 4
@@ -178,6 +185,8 @@ total_steps = 10_000_000_000
 ```toml
 [training]
 artifacts_dir = "artifacts"
+model_name = "ppo_model.pt"
+eval_episodes = 10
 ```
 
 ### `[dashboard]` — 实时训练监控
@@ -211,19 +220,19 @@ max_episodes = 500      # 参与统计的 episode 最大记录数
 [test]
 maps = [1, 2, 3, 4]    # 要测评的地图 ID 列表
 episodes = 10           # 每张地图测评的 episode 数
-npc_count = 1           # NPC 数量（空 = 沿用 train_config 默认值）
+npc_count = 3           # NPC 数量（空 = 沿用 train_config 默认值）
 station_count = 4       # 充电桩数量
 run_id = ""             # 空 = 自动选最新 run
 step = 0                # 0 = 自动选最新 checkpoint
-gif_fps = 10            # GIF 导出帧率
+gif_fps = 20            # GIF 导出帧率
 output_dir = ""         # 空 = 自动生成到 run_dir/eval_<step>/
 ```
 
 启动：
 
 ```bash
-python test_model.py                                   # 默认配置
-python test_model.py --config configs/my_test.toml      # 自定配置
+python scripts/eval.py                                  # 默认配置
+python scripts/eval.py --config configs/my_test.toml     # 自定配置
 ```
 
 ---
@@ -255,20 +264,27 @@ cfgs = load_map_configs([1, 2, 3])    # 批量读取
 | --- | --- | --- |
 | `size` | `(int, int)` | `(128, 128)` |
 | `custom_map` | `np.ndarray` | `None` |
-| `agent_spawn_pool` | `list[tuple[int,int]]` | `None` |
-| `agent_spawn_mode` | `int` | `-1` |
-| `npc_spawn_pool` | `list[tuple[int,int]]` | `None` |
-| `npc_count` | `int` | `1` |
-| `npc_spawn_modes` | `list[int]` | `None` |
-| `station_pool` | `list[dict]` | `None` |
-| `station_count` | `int` | `4` |
-| `station_mode` | `int \| list[int]` | `-1` |
+| `npcs` | `Iterable[NPC ｜ dict ｜ tuple]` | `None` |
+| `charging_stations` | `Iterable[ChargingStation ｜ dict ｜ tuple]` | `None` |
+| `agent_spawn` | `(int, int)` | `None` |
+| `agent_position` | `(int, int)` | `None` |
 | `npc_walk_radius` | `int` | `10` |
 | `max_battery` | `int` | `100` |
 | `max_steps` | `int` | `1000` |
 | `hero_id` | `int` | `37` |
+| `npc_ids` | `Iterable[int]` | `None` |
 | `map_id` | `int` | `0` |
 | `local_view_size` | `int` | `21` |
+| `enable_recording` | `bool` | `False` |
+| `render_mode` | `str` | `None` |
+| `agent_spawn_pool` | `Iterable[tuple]` | `None` |
+| `agent_spawn_mode` | `int` | `-1` |
+| `npc_spawn_pool` | `Iterable[tuple]` | `None` |
+| `npc_spawn_modes` | `Iterable[int]` | `None` |
+| `npc_count` | `int` | `1` |
+| `station_pool` | `Iterable[dict]` | `None` |
+| `station_count` | `int` | `4` |
+| `station_mode` | `int ｜ Iterable[int]` | `-1` |
 
 ---
 

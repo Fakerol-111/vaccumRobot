@@ -1,6 +1,6 @@
 # 清扫机器人强化学习训练框架
 
-基于 **PyTorch + Gymnasium** 的多算法强化学习框架，支持 **PPO / GRPO**、**多地图轮换训练**、**课程学习**、**断点续训**、**实时 Web 监控面板**。
+基于 **PyTorch + Gymnasium** 的多算法强化学习框架，支持 **A2C / PPO / PPO-KL / REINFORCE / TRPO / GRPO**、**多地图轮换训练**、**课程学习**、**断点续训**、**实时 Web 监控面板**。
 
 ---
 
@@ -11,11 +11,15 @@ vacuumRobot/
 ├── agent/                    # 强化学习算法层
 │   ├── base.py               # Algorithm 抽象基类 + ActResult / LossInfo
 │   ├── registry.py           # 算法注册表（register / get / list_available）
-│   ├── common/               # 共享组件（Checkpoint、网络构建单元）
-│   ├── nn/                   # 网络架构（ActorCritic 双流网络）
-│   ├── ppo/                  # PPO 算法实现
-│   ├── grpo/                 # GRPO 算法实现（组内归一化、分支 rollout）
+│   ├── common/               # 共享组件（Checkpoint、RNG 快照）
+│   ├── nn/                   # 网络架构（ActorCritic、SeparateActorCritic）
 │   ├── preprocessor.py       # 特征工程 + 奖励函数
+│   ├── a2c/                  # A2C 算法实现（n-step return）
+│   ├── ppo/                  # PPO 算法实现
+│   ├── ppo_kl/               # PPO-KL 算法（KL 自适应惩罚，无 clip）
+│   ├── reinforce/            # REINFORCE 算法（纯蒙特卡洛）
+│   ├── trpo/                 # TRPO 算法（共轭梯度 + 线搜索，分离网络）
+│   └── grpo/                 # GRPO 算法（组内归一化、分支 rollout）
 │
 ├── core/                     # 运行框架
 │   ├── trainer.py            # Trainer 类（训练主循环、课程学习、断点续训）
@@ -44,24 +48,27 @@ vacuumRobot/
 │   ├── map_editor.py         # 交互式地图编辑器（鼠标绘制）
 │
 ├── configs/                  # 配置文件
-│   ├── train_config.toml     # 训练配置（算法选择 / PPO 超参 / GRPO 超参 / 环境 / 课程 / Dashboard）
+│   ├── train_config.toml     # 训练配置（算法选择 / 各算法超参 / 环境 / 课程 / Dashboard）
 │   ├── test_config.toml      # 评估配置（地图 / episode / 断点选择）
 │   ├── runtime_config.py     # 统一配置加载器（TOML → SimpleNamespace / dict）
 │   ├── map_loader.py         # 地图 JSON 加载与校验
 │   ├── maps/                 # 地图数据
-│       ├── map_1.json ~ map_4.json  # 运行时地图数据
+│       ├── map_1.json ~ map_10.json  # 运行时地图数据（10 张内置地图）
 │       └── src/                      # 地图生成源码
-│           ├── map_1.py ~ map_4.py
+│           ├── map_1.py ~ map_10.py
 │
 ├── tests/                    # 单元测试
 │   ├── test_registry.py          # 算法注册表测试
-│   ├── test_config_dispatch.py   # 配置派发逻辑测试
+│   ├── test_config_dispatch.py   # 配置派发 + 评估链路测试
 │   ├── test_runner_assembly.py   # 训练编排组装测试
-│   ├── test_grpo_algorithm.py    # GRPO 算法生命周期测试
+│   ├── test_grpo_algorithm.py    # GRPO 算法测试
+│   ├── test_ppo_kl_algorithm.py  # PPO-KL 算法测试
+│   ├── test_trpo_algorithm.py    # TRPO 算法测试
 │   ├── test_algorithm_base.py    # Algorithm 接口路由测试
 │   ├── test_batch.py             # GAE + RolloutBatch 测试
 │   ├── test_checkpoint.py        # Checkpoint 序列化测试
 │   ├── test_checkpoint_service.py# 断点查找服务测试
+│   ├── test_animation_demo.py    # 轨迹录制测试
 │   ├── test_map_loader.py
 │   ├── test_paths.py
 │   ├── test_runner_smoke.py
@@ -99,13 +106,14 @@ python scripts/eval.py
 
 ```toml
 [algorithm]
-name = "grpo"   # "ppo" 或 "grpo"
+name = "ppo"   # 可选：a2c / ppo / ppo_kl / reinforce / trpo / grpo
+model_type = "shared"  # "shared"（共享编码器）或 "separate"（分离编码器，TRPO 必须）
 ```
 
-框架通过注册表自动派发，Trainer 无需关心具体算法。也可从 PPO 预训练权重开始 GRPO 训练：
+框架通过注册表自动派发，Trainer 无需关心具体算法。也可从预训练权重开始训练：
 
 ```bash
-python scripts/train.py --load-weights artifacts/multi_map/checkpoints/run_id/checkpoint_5000.pt
+python scripts/train.py --load-weights artifacts/multi_map/checkpoints/<run_id>/checkpoint_5000.pt
 ```
 
 ### 启动训练
@@ -131,7 +139,8 @@ python scripts/train.py --resume artifacts/multi_map/checkpoints/20260429_120000
 
 ```toml
 [algorithm]
-name = "ppo"              # 算法名称，可选 "ppo" / "grpo"
+name = "ppo"              # 算法名称：a2c / ppo / ppo_kl / reinforce / trpo / grpo
+model_type = "shared"     # "shared" / "separate"（TRPO 必须 "separate"）
 
 [ppo]
 learning_rate = 0.001
@@ -146,6 +155,82 @@ batch_size = 256
 mini_batch_size = 64
 total_timesteps = 10_000_000_000
 save_interval = 2_000
+save_time_interval = 300    # 按时间保存（秒），0 = 禁用
+log_interval = 500
+num_actions = 8
+local_view_size = 21
+max_npcs = 5
+
+[a2c]
+learning_rate = 0.001
+gamma = 0.99
+n_step = 8
+value_coef = 0.5
+entropy_coef = 0.01
+max_grad_norm = 0.5
+batch_size = 256
+normalize_advantage = true
+total_timesteps = 10_000
+save_interval = 2_000
+save_time_interval = 300
+log_interval = 500
+num_actions = 8
+local_view_size = 21
+max_npcs = 5
+
+[ppo_kl]
+learning_rate = 0.001
+gamma = 0.99
+gae_lambda = 0.95
+clip_epsilon = 0.2
+value_coef = 0.5
+entropy_coef = 0.01
+max_grad_norm = 0.5
+ppo_epochs = 4
+batch_size = 256
+mini_batch_size = 64
+target_kl = 0.01           # 目标 KL 散度
+kl_beta = 1.0              # KL 惩罚系数初始值
+kl_adaptive = true         # 是否自适应调整 β
+total_timesteps = 10_000
+save_interval = 2_000
+save_time_interval = 300
+log_interval = 500
+num_actions = 8
+local_view_size = 21
+max_npcs = 5
+
+[reinforce]
+learning_rate = 0.001
+gamma = 0.99
+value_coef = 0.5
+entropy_coef = 0.01
+max_grad_norm = 0.5
+batch_size = 256
+normalize_advantage = true
+total_timesteps = 10_000
+save_interval = 2_000
+save_time_interval = 300
+log_interval = 500
+num_actions = 8
+local_view_size = 21
+max_npcs = 5
+
+[trpo]
+learning_rate = 0.001
+gamma = 0.99
+gae_lambda = 0.95
+max_kl = 0.01
+cg_damping = 0.1
+cg_iterations = 10
+line_search_steps = 10
+value_epochs = 5
+value_mini_batch_size = 64
+max_grad_norm = 0.5
+batch_size = 256
+total_timesteps = 10_000
+save_interval = 2_000
+save_time_interval = 300
 log_interval = 500
 num_actions = 8
 local_view_size = 21
@@ -153,25 +238,24 @@ max_npcs = 5
 
 [grpo]
 learning_rate = 0.0003
-gamma = 0.99
 max_grad_norm = 0.5
 total_timesteps = 10_000_000_000
 save_interval = 2_000
+save_time_interval = 300
 log_interval = 500
 num_actions = 8
-local_view_size = 21
-max_npcs = 5
-branch_window = 64            # 分支 rollout 步数
-branch_interval = 30          # 每 N 步触发一次组内更新
-num_candidates = 4            # 候选动作数
+branch_window = 20            # 单条分支 rollout 步数
+branch_interval = 20          # 每 N 步触发一次组更新
+num_candidates = 2            # 候选动作数（K）
 kl_coef = 0.1                 # KL 散度惩罚系数
-action_prob_threshold = 0.01  # 候选动作概率阈值
+entropy_coef = 0.01           # 熵正则系数
+ref_sync = "episode"          # reference model 同步策略
 
 [general]
 seed = 42
 
 [env]
-default_map_list = [1, 2, 3, 4]
+default_map_list = [1, 2, 3, 4, 5, 6, 7, 8]
 default_npc_count = 1
 default_station_count = 4
 map_strategy = "round_robin"
@@ -202,6 +286,7 @@ total_steps = 10_000_000_000
 
 [training]
 artifacts_dir = "artifacts"
+model_name = "ppo_model.pt"
 eval_episodes = 10
 
 [dashboard]
@@ -275,20 +360,21 @@ Checkpoint 保存了完整训练状态：
 
 ## 实时训练监控 (Dashboard)
 
-训练时自动启动 Web 监控面板，访问 **`http://localhost:8088`**。面板根据算法自动切换显示指标：
-
-| PPO 图表 | GRPO 图表 |
-|----------|-----------|
-| Policy Loss | Group Mean Score |
-| Value Loss | Group Std Score |
-| Entropy | KL Divergence |
-| Total Loss | Total Loss |
+训练时自动启动 Web 监控面板，访问 **`http://localhost:8088`**。面板显示通用训练指标和算法特有指标：
 
 **通用图表**：
 | Episode Reward & EMA Cleaned | 每 episode 累计奖励 + 清洁分 EMA |
 | Episode 指标 | Cleaned / Steps 双轴图 |
 | Update Mean Reward | 每次算法 update 的平均奖励 |
 | 实时日志流 | 彩色编码的事件日志（episode / update / 阶段切换） |
+
+**算法特有指标**：
+| PPO / A2C / REINFORCE | PPO-KL | TRPO | GRPO |
+|------------------------|--------|------|------|
+| Policy Loss | Policy Loss | Surrogate Loss | Group Mean Score |
+| Value Loss | Value Loss | KL Divergence | Group Std Score |
+| Entropy | KL Divergence | Line Search Step | KL Divergence |
+| Total Loss | KL Beta | - | Total Loss |
 
 配置：
 
@@ -390,6 +476,7 @@ configs/maps/src/map_N.py     ← 生成源码（含 build 函数，不参与运
 | 2 | maze | `configs/maps/src/map_2.py` | 128×128 迷宫走廊，狭窄通道 |
 | 3 | rooms | `configs/maps/src/map_3.py` | 128×128 四房间+门洞连接 |
 | 4 | open_scattered | `configs/maps/src/map_4.py` | 128×128 无边界墙，散布随机障碍块 |
+| 5-10 | (自定义) | `configs/maps/src/map_5.py ~ 10.py` | 逐步增加的多样化地图布局 |
 
 ---
 
@@ -444,11 +531,11 @@ vector_data (B, 10)                           │
 ## 测试
 
 ```bash
-# 运行所有测试（180+ 测试）
-python -m unittest discover tests -v
+# 运行所有测试（240+ 测试）
+python -m pytest tests/
 
 # 运行特定测试文件
-python -m unittest tests/test_registry.py
-python -m unittest tests/test_grpo_algorithm.py
-python -m unittest tests/test_runner_assembly.py
+python -m pytest tests/test_registry.py
+python -m pytest tests/test_trpo_algorithm.py
+python -m pytest tests/test_runtime_config.py
 ```
