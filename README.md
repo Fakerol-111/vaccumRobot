@@ -470,13 +470,7 @@ configs/maps/src/map_N.py     ← 生成源码（含 build 函数，不参与运
 
 ### 内置地图
 
-| ID | 地图名 | 源文件 | 特点 |
-| -- | ------ | ------ | ---- |
-| 1 | simple | `configs/maps/src/map_1.py` | 128×128 方形，边界障碍，内部全脏 |
-| 2 | maze | `configs/maps/src/map_2.py` | 128×128 迷宫走廊，狭窄通道 |
-| 3 | rooms | `configs/maps/src/map_3.py` | 128×128 四房间+门洞连接 |
-| 4 | open_scattered | `configs/maps/src/map_4.py` | 128×128 无边界墙，散布随机障碍块 |
-| 5-10 | (自定义) | `configs/maps/src/map_5.py ~ 10.py` | 逐步增加的多样化地图布局 |
+内置 10 张 128×128 地图（ID 1–10），墙体密度从 13% 递增至 60%，由易到难排列。
 
 ---
 
