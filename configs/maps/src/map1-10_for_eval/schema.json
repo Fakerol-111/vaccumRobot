@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/your-org/vacuum-robot/schemas/map_config.json",
+  "title": "GridWorld Map Configuration",
+  "description": "Schema for GridWorld robot vacuum map configuration files",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "map_id",
+    "size",
+    "custom_map",
+    "agent_spawn_pool",
+    "npc_spawn_pool",
+    "station_pool",
+    "max_battery",
+    "max_steps",
+    "hero_id",
+    "local_view_size"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "description": "Schema version for forward compatibility",
+      "minimum": 1,
+      "examples": [1]
+    },
+    "map_id": {
+      "type": "integer",
+      "description": "Unique map identifier",
+      "minimum": 1,
+      "examples": [1, 2, 3, 4]
+    },
+    "size": {
+      "type": "array",
+      "description": "Map dimensions [width, height]",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "integer",
+        "minimum": 16
+      },
+      "examples": [[128, 128]]
+    },
+    "custom_map": {
+      "type": "array",
+      "description": "2D grid of cell types: 0=blocked (obstacle), 1=clean, 2=dirty. Each row is a continuous digit string for compactness and visual readability.",
+      "items": {
+        "type": "string",
+        "pattern": "^[012]+$"
+      },
+      "examples": [["000", "022", "022"]]
+    },
+    "agent_spawn_pool": {
+      "type": "array",
+      "description": "Candidate spawn positions for the cleaning agent [x, z]",
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "examples": [[[64, 1], [64, 126]]]
+    },
+    "npc_spawn_pool": {
+      "type": "array",
+      "description": "Candidate spawn positions for NPCs [x, z]",
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "examples": [[[64, 64], [32, 32]]]
+    },
+    "station_pool": {
+      "type": "array",
+      "description": "Charging station zone definitions",
+      "items": {
+        "type": "object",
+        "required": ["x", "z", "dx", "dz"],
+        "properties": {
+          "x": { "type": "integer", "description": "Top-left corner x coordinate" },
+          "z": { "type": "integer", "description": "Top-left corner z coordinate" },
+          "dx": { "type": "integer", "minimum": 1, "description": "Width of the station zone" },
+          "dz": { "type": "integer", "minimum": 1, "description": "Height of the station zone" }
+        },
+        "additionalProperties": false
+      },
+      "examples": [[{"x": 1, "z": 1, "dx": 3, "dz": 3}]]
+    },
+    "max_battery": {
+      "type": "integer",
+      "description": "Maximum battery capacity of the agent",
+      "minimum": 1,
+      "examples": [200]
+    },
+    "max_steps": {
+      "type": "integer",
+      "description": "Maximum steps per episode before truncation",
+      "minimum": 1,
+      "examples": [1000]
+    },
+    "hero_id": {
+      "type": "integer",
+      "description": "Hero/agent type identifier",
+      "examples": [37]
+    },
+    "npc_ids": {
+      "oneOf": [
+        { "type": "null", "description": "Auto-generate NPC IDs" },
+        {
+          "type": "array",
+          "description": "Explicit NPC type IDs",
+          "items": { "type": "integer" }
+        }
+      ],
+      "examples": [null, [1, 2, 3]]
+    },
+    "local_view_size": {
+      "type": "integer",
+      "description": "Size of the local observation window (must be odd)",
+      "minimum": 3,
+      "examples": [21]
+    }
+  },
+  "additionalProperties": false
+}
