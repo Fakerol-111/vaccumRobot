@@ -53,9 +53,11 @@ vacuumRobot/
 │   ├── runtime_config.py     # 统一配置加载器（TOML → SimpleNamespace / dict）
 │   ├── map_loader.py         # 地图 JSON 加载与校验
 │   ├── maps/                 # 地图数据
-│       ├── map_1.json ~ map_10.json  # 运行时地图数据（10 张内置地图）
+│       ├── map_1.json ~ map_10.json  # 内置地图（10 张，ID 1–10）
+│       ├── map_11.json ~ map_20.json # 评估变体（基于 1–10 微调，ID 11–20）
 │       └── src/                      # 地图生成源码
 │           ├── map_1.py ~ map_10.py
+│           └── map1-10_for_eval/     # 评估变体源文件（JSON 格式，已预生成）
 │
 ├── tests/                    # 单元测试
 │   ├── test_registry.py          # 算法注册表测试
@@ -288,6 +290,8 @@ total_steps = 10_000_000_000
 artifacts_dir = "artifacts"
 model_name = "ppo_model.pt"
 eval_episodes = 10
+# 自定义运行目录名称（留空 = 自动使用时间戳 run_YYYYMMDD_HHMMSS）
+run_name = ""
 
 [dashboard]
 enabled = true
@@ -324,7 +328,7 @@ max_episodes = 500
 artifacts/
   └─ multi_map/
        └─ checkpoints/
-            └─ 20260429_135229/          ← 一次训练 run
+            └─ 20260429_135229/          ← 一次训练 run（可在配置中设置 run_name 自定义名称）
                  ├─ run_info.json          ← 训练元信息（种子 + 超参 + Git 信息）
                  ├─ train_config.toml      ← 配置文件副本
                  ├─ train.log              ← 训练日志
@@ -471,6 +475,7 @@ configs/maps/src/map_N.py     ← 生成源码（含 build 函数，不参与运
 ### 内置地图
 
 内置 10 张 128×128 地图（ID 1–10），墙体密度从 13% 递增至 60%，由易到难排列。
+另含 10 张评估变体地图（ID 11–20），基于 1–10 微调布局，用于测试泛化能力。
 
 ---
 

@@ -53,7 +53,13 @@ def run_training(req: TrainRequest) -> TrainResult:
     else:
         resume_from = _resolve_resume(req.resume_from, req.training_config)
 
-    run_id = req.run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = req.run_id
+    if run_id is None:
+        custom_name = req.training_config.get("run_name", "")
+        if custom_name:
+            run_id = custom_name
+        else:
+            run_id = datetime.now().strftime("run_%Y%m%d_%H%M%S")
     resolved_resume = resolve_checkpoint(resume_from, req.artifacts_root)
 
     run_dir = get_run_dir(checkpoints_root, run_id)
