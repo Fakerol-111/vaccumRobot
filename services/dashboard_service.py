@@ -451,18 +451,31 @@ class DashboardServer:
     def start(self) -> None:
         DashboardHandler.collector = self.collector
         self._server = HTTPServer((self.host, self.port), DashboardHandler)
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+        def _serve() -> None:
+            try:
+                self._server.serve_forever()
+            except OSError:
+                pass  # 关闭时 select 可能抛 OSError，忽略即可
+
+        self._thread = threading.Thread(target=_serve, daemon=True)
         self._thread.start()
         logger.info("Dashboard Server started at http://%s:%s", self.host, self.port)
         logger.info("打开浏览器访问 http://localhost:%s", self.port)
 
     def stop(self) -> None:
-        if self._server:
-            self._server.server_close()
-            self._server = None
-        if self._thread:
+        # 先 shutdown → serve_forever 收到信号退出 select 循环
+        if self._server is not None:
+            try:
+                self._server.shutdown()
+            except OSError:
+                pass  # 可能已经关闭
+        if self._thread is not None:
             self._thread.join(timeout=2)
             self._thread = None
+        if self._server is not None:
+            self._server.server_close()
+            self._server = None
         logger.info("Dashboard Server stopped")
 
 
